@@ -69,3 +69,8 @@ Ran 2 Codex (GPT-5.5 xhigh: Integration + Domain) + 1 Opus skeptic, all grounded
 - **32 Kit tests green** (added: token-extraction-ignores-mcpOAuth regression, decode-tolerance regression, billing-anchor cases). App builds + runs; all 3 providers live; refresh ~12s.
 - **Deferred (noted, low-impact):** process-group kill of codexbar children; cost timezone alignment (moot while cost off); App Group entitlements (M6 widget).
 - **OPEN for Andrew:** (a) confirm Claude Max tier — $100 (5×) vs $200 (20×), currently defaulting $200; (b) permission to make the first git commit (nothing committed yet, per review-before-commit).
+
+### 2026-06-07 — Shipped to GitHub
+- Initial commit `f3d6074` (32 files, no artifacts/secrets). Pushed to **https://github.com/aylee1024/need-more-tokens** — public, MIT, topics set.
+- New short/fun README framing it as the companion to **lord-claude** (Andrew's Claude→Codex/Gemini delegation skills).
+- STILL OPEN: Claude tier ($100/$200); next milestones = M4 lifetime ledger + M6 widget (needs App Group entitlements on both targets).
