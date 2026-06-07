@@ -1,0 +1,48 @@
+[
+  {
+    "provider": "codex",
+    "source": "oauth",
+    "version": "0.135.0",
+    "credits": { "remaining": 1000, "updatedAt": "2026-06-06T22:11:07Z" },
+    "usage": {
+      "accountEmail": "user@example.com",
+      "loginMethod": "prolite",
+      "identity": { "accountEmail": "user@example.com", "loginMethod": "prolite", "providerID": "codex" },
+      "extraRateWindows": [
+        { "id": "codex-spark", "title": "Codex Spark 5-hour", "window": { "usedPercent": 0, "windowMinutes": 300 } }
+      ],
+      "primary": { "usedPercent": 12, "windowMinutes": 300, "resetsAt": "2026-06-07T03:11:07Z", "resetDescription": "11:11 PM" },
+      "secondary": { "usedPercent": 34, "windowMinutes": 10080, "resetsAt": "2026-06-11T04:06:49Z", "resetDescription": "Jun 11 at 12:06 AM" },
+      "tertiary": null,
+      "updatedAt": "2026-06-06T22:11:07Z"
+    }
+  },
+  {
+    "provider": "claude",
+    "source": "web",
+    "version": "2.1.39",
+    "usage": {
+      "accountEmail": "user@example.com",
+      "accountOrganization": "user@example.com's Organization",
+      "loginMethod": "Claude Max",
+      "primary": { "usedPercent": 13, "windowMinutes": 300, "resetsAt": "2026-06-06T23:00:00Z", "resetDescription": "Jun 6 at 7:00PM" },
+      "secondary": { "usedPercent": 40, "windowMinutes": 10080, "resetsAt": "2026-06-08T09:00:00Z", "resetDescription": "Jun 8 at 5:00AM" },
+      "tertiary": { "usedPercent": 1, "windowMinutes": 10080, "resetsAt": "2026-06-08T09:00:00Z", "resetDescription": "Jun 8 at 5:00AM" },
+      "providerCost": { "used": 0, "limit": 40, "currencyCode": "USD", "period": "Monthly cap", "updatedAt": "2026-06-06T22:15:43Z" },
+      "updatedAt": "2026-06-06T22:15:43Z"
+    }
+  },
+  {
+    "provider": "gemini",
+    "source": "oauth-api",
+    "version": "0.45.2",
+    "usage": {
+      "accountEmail": "user@example.com",
+      "loginMethod": "Paid",
+      "primary": { "usedPercent": 2, "windowMinutes": 1440, "resetsAt": "2026-06-07T20:48:27Z", "resetDescription": "Resets in 22h 37m" },
+      "secondary": { "usedPercent": 0, "windowMinutes": 1440, "resetsAt": "2026-06-07T22:11:09Z", "resetDescription": "Resets in 23h 59m" },
+      "tertiary": { "usedPercent": 0.125, "windowMinutes": 1440, "resetsAt": "2026-06-07T21:09:09Z", "resetDescription": "Resets in 22h 57m" },
+      "updatedAt": "2026-06-06T22:11:09Z"
+    }
+  }
+]

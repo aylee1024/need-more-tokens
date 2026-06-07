@@ -1,0 +1,2 @@
+{"provider":"codex","source":"oauth","usage":{"primary":{"usedPercent":5,"windowMinutes":300,"resetsAt":"2026-06-07T03:11:07Z"},"updatedAt":"2026-06-06T22:11:07Z"}}
+{"provider":"gemini","source":"oauth-api","usage":{"primary":{"usedPercent":2,"windowMinutes":1440,"resetsAt":"2026-06-07T20:48:27Z"},"updatedAt":"2026-06-06T22:11:09Z"}}
