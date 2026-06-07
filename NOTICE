@@ -1,0 +1,18 @@
+Need More Tokens
+Copyright (c) 2026 Andrew Lee
+
+This product depends on and is designed to run on top of the "codexbar"
+engine by Peter Steinberger, used as an external command-line binary across
+a JSON boundary:
+
+    CodexBar — https://github.com/steipete/CodexBar
+    Licensed under the MIT License. Copyright (c) 2026 Peter Steinberger.
+
+Need More Tokens does not bundle or link CodexBar source code. It invokes the
+separately-installed `codexbar` CLI and consumes its documented JSON output.
+The widget snapshot / App Group sharing architecture in this project was
+informed by CodexBar's design (MIT), re-implemented independently here.
+
+Provider usage and cost data originate from each provider's own systems
+(Anthropic, OpenAI, Google) as surfaced by the codexbar engine; Need More
+Tokens reads that data locally and never transmits it anywhere.

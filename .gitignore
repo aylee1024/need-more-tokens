@@ -1,0 +1,30 @@
+# Generated Xcode project (regenerate with: xcodegen generate)
+*.xcodeproj/
+*.xcworkspace/
+
+# Build products
+.build/
+DerivedData/
+build/
+*.o
+*.swiftmodule
+
+# SwiftPM
+Package.resolved
+
+# Xcode user state
+xcuserdata/
+*.xcscmblueprint
+*.xccheckout
+
+# macOS
+.DS_Store
+
+# Captured engine output (may contain account email / usage — never commit raw)
+/tmp_capture/
+*.local.json
+
+# Secrets / signing
+*.p12
+*.mobileprovision
+ExportOptions.plist

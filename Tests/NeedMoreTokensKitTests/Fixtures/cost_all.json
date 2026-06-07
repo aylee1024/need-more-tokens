@@ -1,0 +1,38 @@
+[
+  {
+    "provider": "codex",
+    "source": "local",
+    "currencyCode": "USD",
+    "historyDays": 30,
+    "sessionCostUSD": 0.1,
+    "sessionTokens": 14850,
+    "last30DaysCostUSD": 64.0,
+    "last30DaysTokens": 1000000,
+    "daily": [
+      { "date": "2026-05-31", "inputTokens": 90, "outputTokens": 10, "totalTokens": 100, "totalCost": 10.0, "modelsUsed": ["gpt-5.5"] },
+      { "date": "2026-06-01", "inputTokens": 180, "outputTokens": 20, "totalTokens": 200, "totalCost": 20.0, "modelsUsed": ["gpt-5.5"] },
+      { "date": "2026-06-06", "inputTokens": 270, "outputTokens": 30, "totalTokens": 300, "totalCost": 34.0, "modelsUsed": ["gpt-5.5"] }
+    ],
+    "totals": { "inputTokens": 540, "outputTokens": 60, "totalTokens": 600, "totalCost": 64.0 },
+    "updatedAt": "2026-06-06T22:11:10Z"
+  },
+  {
+    "provider": "claude",
+    "source": "local",
+    "currencyCode": "USD",
+    "historyDays": 30,
+    "sessionCostUSD": 52.19,
+    "last30DaysCostUSD": 108.0,
+    "daily": [
+      { "date": "2026-06-02", "totalTokens": 500, "totalCost": 8.0, "modelsUsed": ["claude-opus-4-8"] },
+      { "date": "2026-06-06", "totalTokens": 600, "totalCost": 100.0, "modelsUsed": ["claude-opus-4-8"] }
+    ],
+    "totals": { "totalTokens": 1100, "totalCost": 108.0 },
+    "updatedAt": "2026-06-06T22:15:44Z"
+  },
+  {
+    "error": { "code": 1, "kind": "args", "message": "Error: cost is only supported for Claude and Codex." },
+    "provider": "cli",
+    "source": "cli"
+  }
+]

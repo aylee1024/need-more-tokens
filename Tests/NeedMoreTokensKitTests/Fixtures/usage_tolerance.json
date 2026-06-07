@@ -1,0 +1,23 @@
+[
+  {
+    "provider": "claude",
+    "usage": {
+      "primary": { "usedPercent": 50, "windowMinutes": 300, "resetsAt": "2026-06-06T23:00:00Z" },
+      "futureField": { "anything": true, "nested": [1, 2, 3] },
+      "updatedAt": "2026-06-06T22:15:43Z"
+    },
+    "newTopLevelKey": [1, 2, 3]
+  },
+  {
+    "provider": "codex",
+    "usage": {
+      "primary": { "usedPercent": 80 },
+      "secondary": { "usedPercent": 20, "windowMinutes": 10080, "resetsAt": "2026-06-11T04:06:49Z" },
+      "updatedAt": "2026-06-06T22:11:07Z"
+    }
+  },
+  {
+    "provider": "grok-future",
+    "usage": { "primary": { "usedPercent": 1, "windowMinutes": 300 } }
+  }
+]
