@@ -4,24 +4,18 @@ import NeedMoreTokensKit
 /// The menu-bar popover. The panel is the Liquid Glass "chrome" layer (the provider
 /// tiles get `.glassEffect` inside one `GlassEffectContainer`, per Apple's guidance
 /// for multiple glass elements); the bars and text are content that sits on top.
+///
+/// macOS does not honor Dynamic Type, so the whole popover is scaled explicitly from
+/// `uiSizeStep`: a real point-size font per role, and every metric multiplied by `uiScale`.
 struct PopoverView: View {
     let model: AppModel
-    /// Persistent UI size step (0 = system default; higher = bigger fonts + layout).
-    @AppStorage("uiSizeStep") private var uiSizeStep: Int = 1
+    /// Persistent UI size step (see `UISize`); the A−/A+ controls drive it.
+    @AppStorage(UISize.defaultsKey) private var uiSizeStep = UISize.defaultStep
 
-    private static let maxSizeStep = 6
-
-    private var dynamicSize: DynamicTypeSize {
-        switch uiSizeStep {
-        case ...0: .large
-        case 1: .xLarge
-        case 2: .xxLarge
-        case 3: .xxxLarge
-        case 4: .accessibility1
-        case 5: .accessibility2
-        default: .accessibility3
-        }
-    }
+    private var step: Int { UISize.clampedStep(uiSizeStep) }
+    private var uiScale: CGFloat { UISize.scale(for: step) }
+    private var panelMinSize: CGSize { UISize.panelMinSize(for: uiScale) }
+    private var panelIdealSize: CGSize { UISize.panelDefaultSize(for: uiScale) }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -30,33 +24,35 @@ struct PopoverView: View {
             Divider().opacity(0.25)
             footer
         }
-        .frame(minWidth: 300, idealWidth: 360, maxWidth: .infinity,
-               minHeight: 220, maxHeight: .infinity, alignment: .top)
-        .dynamicTypeSize(dynamicSize)
+        .frame(minWidth: panelMinSize.width, idealWidth: panelIdealSize.width, maxWidth: .infinity,
+               minHeight: panelMinSize.height, maxHeight: .infinity, alignment: .top)
+        .environment(\.uiScale, uiScale)
     }
 
     private var header: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: scaled(8)) {
             Image(systemName: "gauge.with.dots.needle.bottom.50percent")
+                .font(Theme.font(.subheadline, scale: uiScale, weight: .semibold))
                 .foregroundStyle(.tint)
             Text("Need More Tokens")
-                .font(.subheadline.weight(.semibold))
+                .font(Theme.font(.subheadline, scale: uiScale, weight: .semibold))
             Spacer()
             if model.isRefreshing {
-                ProgressView().controlSize(.mini)
+                ProgressView().controlSize(Theme.progressSize(for: uiScale))
             } else {
                 Button {
                     Task { await model.refresh() }
                 } label: {
                     Image(systemName: "arrow.clockwise")
+                        .font(Theme.font(.subheadline, scale: uiScale, weight: .semibold))
                 }
                 .buttonStyle(.borderless)
                 .help("Refresh now")
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.top, 12)
-        .padding(.bottom, 8)
+        .padding(.horizontal, scaled(14))
+        .padding(.top, scaled(12))
+        .padding(.bottom, scaled(8))
     }
 
     @ViewBuilder private var content: some View {
@@ -66,87 +62,108 @@ struct PopoverView: View {
             HStack {
                 Spacer()
                 if model.engineState == .error, let error = model.lastError {
-                    VStack(spacing: 6) {
-                        Image(systemName: "exclamationmark.triangle").foregroundStyle(.orange)
-                        Text(error).font(.callout).foregroundStyle(.secondary)
+                    VStack(spacing: scaled(6)) {
+                        Image(systemName: "exclamationmark.triangle")
+                            .font(Theme.font(.callout, scale: uiScale, weight: .semibold))
+                            .foregroundStyle(.orange)
+                        Text(error)
+                            .font(Theme.font(.callout, scale: uiScale))
+                            .foregroundStyle(.secondary)
                     }
                 } else {
-                    ProgressView("Reading usage…").controlSize(.small)
+                    ProgressView("Reading usage…")
+                        .controlSize(Theme.progressSize(for: uiScale))
+                        .font(Theme.font(.callout, scale: uiScale))
                 }
                 Spacer()
             }
-            .padding(.vertical, 28)
+            .padding(.vertical, scaled(28))
         } else {
             ScrollView {
-                GlassEffectContainer(spacing: 10) {
-                    VStack(spacing: 10) {
+                GlassEffectContainer(spacing: scaled(10)) {
+                    VStack(spacing: scaled(10)) {
                         ForEach(model.entries, id: \.provider) { entry in
                             ProviderCardView(entry: entry)
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                                .glassEffect(in: .rect(cornerRadius: 16))
+                                .glassEffect(in: .rect(cornerRadius: scaled(16)))
                         }
                     }
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
+                .padding(.horizontal, scaled(12))
+                .padding(.vertical, scaled(8))
             }
             .frame(maxHeight: .infinity)
         }
     }
 
     private var onboarding: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: scaled(10)) {
             Image(systemName: "bolt.horizontal.circle")
-                .font(.largeTitle)
+                .font(Theme.font(.largeTitle, scale: uiScale))
                 .foregroundStyle(.secondary)
-            Text("Engine not found").font(.headline)
+            Text("Engine not found")
+                .font(Theme.font(.headline, scale: uiScale, weight: .semibold))
             Text("Need More Tokens runs on the codexbar engine. Install it, then check again.")
-                .font(.caption)
+                .font(Theme.font(.caption, scale: uiScale))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
             Text("brew install --cask codexbar")
-                .font(.caption.monospaced())
-                .padding(8)
-                .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
+                .font(Theme.monospacedFont(.caption, scale: uiScale))
+                .padding(scaled(8))
+                .background(.quaternary, in: RoundedRectangle(cornerRadius: scaled(6)))
                 .textSelection(.enabled)
             Button("Check again") { Task { await model.refresh() } }
                 .buttonStyle(.glass)
+                .font(Theme.font(.callout, scale: uiScale, weight: .medium))
         }
-        .padding(20)
+        .padding(scaled(20))
     }
 
     private var footer: some View {
-        HStack(spacing: 8) {
-            if let last = model.lastRefresh {
+        HStack(spacing: scaled(8)) {
+            // Error first: otherwise a stale "Updated …" would mask a later failure.
+            if let error = model.lastError {
+                Text(error)
+                    .font(Theme.font(.caption2, scale: uiScale))
+                    .foregroundStyle(.orange)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            } else if let last = model.lastRefresh {
                 Text("Updated \(last.formatted(date: .omitted, time: .shortened))")
-                    .font(.caption2)
+                    .font(Theme.font(.caption2, scale: uiScale))
                     .foregroundStyle(.tertiary)
-            } else if let error = model.lastError {
-                Text(error).font(.caption2).foregroundStyle(.orange)
+                    .lineLimit(1)
             }
-            Spacer()
+            Spacer(minLength: scaled(4))
             sizeControl
             Button("Quit") { NSApplication.shared.terminate(nil) }
                 .buttonStyle(.borderless)
-                .font(.caption)
+                .font(Theme.font(.caption, scale: uiScale))
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
+        .padding(.horizontal, scaled(14))
+        .padding(.vertical, scaled(8))
     }
 
     private var sizeControl: some View {
-        HStack(spacing: 1) {
-            Button { uiSizeStep = max(0, uiSizeStep - 1) } label: {
+        HStack(spacing: scaled(1)) {
+            Button { uiSizeStep = UISize.clampedStep(step - 1) } label: {
                 Image(systemName: "textformat.size.smaller")
+                    .font(Theme.font(.callout, scale: uiScale, weight: .semibold))
             }
             .buttonStyle(.borderless)
-            .disabled(uiSizeStep <= 0)
-            Button { uiSizeStep = min(Self.maxSizeStep, uiSizeStep + 1) } label: {
+            .disabled(step <= UISize.minStep)
+            Button { uiSizeStep = UISize.clampedStep(step + 1) } label: {
                 Image(systemName: "textformat.size.larger")
+                    .font(Theme.font(.callout, scale: uiScale, weight: .semibold))
             }
             .buttonStyle(.borderless)
-            .disabled(uiSizeStep >= Self.maxSizeStep)
+            .disabled(step >= UISize.maxStep)
         }
         .help("Make the whole UI bigger or smaller")
+    }
+
+    /// A layout length scaled to the current UI size.
+    private func scaled(_ base: CGFloat) -> CGFloat {
+        UISize.metric(base, scale: uiScale)
     }
 }
