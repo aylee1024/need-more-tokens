@@ -3,6 +3,28 @@ import NeedMoreTokensKit
 
 /// Visual vocabulary for the app. Intentionally small; polished further in M5.
 enum Theme {
+    // MARK: - UI scale (pure math is NeedMoreTokensKit.UISize; this is the SwiftUI glue)
+
+    /// A real point-size font for `role`, scaled by `scale`. Renders crisply at any size.
+    static func font(_ role: TextRole, scale: CGFloat,
+                     weight: Font.Weight = .regular, design: Font.Design = .default) -> Font {
+        .system(size: (role.basePointSize * scale * 2).rounded() / 2, weight: weight, design: design)
+    }
+
+    /// Monospaced variant (for digits / shell commands) that scales the same way.
+    static func monospacedFont(_ role: TextRole, scale: CGFloat, weight: Font.Weight = .regular) -> Font {
+        font(role, scale: scale, weight: weight, design: .monospaced)
+    }
+
+    /// A progress-spinner control size that grows with the UI scale (spinners take no font).
+    static func progressSize(for scale: CGFloat) -> ControlSize {
+        switch scale {
+        case ..<1.2: .small
+        case ..<1.6: .regular
+        default: .large
+        }
+    }
+
     /// Green when there's headroom, amber when getting tight, red when nearly out.
     static func remainingColor(_ remainingPercent: Double) -> Color {
         switch remainingPercent {
@@ -26,6 +48,19 @@ enum Theme {
         case .codex: Color(white: 0.82)
         case .gemini: Color(red: 0.32, green: 0.55, blue: 0.96) // blue
         }
+    }
+}
+
+private struct UIScaleEnvironmentKey: EnvironmentKey {
+    static let defaultValue = UISize.scale(for: UISize.defaultStep)
+}
+
+extension EnvironmentValues {
+    /// The app-wide UI magnification. macOS has no Dynamic Type, so views read this
+    /// and multiply their own fonts and metrics by it.
+    var uiScale: CGFloat {
+        get { self[UIScaleEnvironmentKey.self] }
+        set { self[UIScaleEnvironmentKey.self] = newValue }
     }
 }
 
