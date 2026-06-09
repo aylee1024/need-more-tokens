@@ -34,21 +34,6 @@ enum Theme {
         }
     }
 
-    static func symbol(for provider: Provider) -> String {
-        switch provider {
-        case .claude: "sparkle"
-        case .codex: "chevron.left.forwardslash.chevron.right"
-        case .gemini: "diamond.fill"
-        }
-    }
-
-    static func tint(for provider: Provider) -> Color {
-        switch provider {
-        case .claude: Color(red: 0.80, green: 0.49, blue: 0.31) // terracotta
-        case .codex: Color(white: 0.82)
-        case .gemini: Color(red: 0.32, green: 0.55, blue: 0.96) // blue
-        }
-    }
 }
 
 private struct UIScaleEnvironmentKey: EnvironmentKey {

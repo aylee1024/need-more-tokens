@@ -34,10 +34,6 @@ struct ProviderCardView: View {
 
     private var header: some View {
         HStack(spacing: scaled(8)) {
-            Image(systemName: Theme.symbol(for: entry.provider))
-                .font(Theme.font(.headline, scale: uiScale, weight: .semibold))
-                .foregroundStyle(Theme.tint(for: entry.provider))
-                .frame(width: scaled(18))
             Text(entry.provider.displayName)
                 .font(Theme.font(.headline, scale: uiScale, weight: .semibold))
             if let plan = entry.planName {

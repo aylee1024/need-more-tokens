@@ -30,7 +30,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         item.button?.target = self
         item.button?.action = #selector(togglePanel)
-        item.button?.title = "⋯"
+        item.button?.title = "NMT"
         statusItem = item
         observeStatusTitle()
         NotificationCenter.default.addObserver(
@@ -219,17 +219,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func applyStatusTitle() {
         guard let button = statusItem?.button else { return }
-        // Scale the menu-bar number with the same UI-size toggle as the popover, so
-        // "make everything bigger" also enlarges the one item that's always on screen.
+        // Show the app's mark "NMT" (a single % across three providers was ambiguous).
+        // It scales with the UI-size toggle, and tints by the tightest provider — a calm
+        // label normally, amber/red only when something's actually running low.
         let size = Self.menuBarFontSize(for: currentStep())
-        guard let lowest = model.lowestRemainingPercent else {
-            button.attributedTitle = Self.statusTitle("⋯", color: .secondaryLabelColor,
-                                                      size: size, weight: .medium)
-            return
-        }
-        button.attributedTitle = Self.statusTitle("\(Int(lowest.rounded()))%",
-                                                  color: Self.color(forRemaining: lowest),
-                                                  size: size, weight: .semibold)
+        let color = model.lowestRemainingPercent.map { Self.color(forRemaining: $0) } ?? .labelColor
+        button.attributedTitle = Self.statusTitle("NMT", color: color, size: size, weight: .semibold)
     }
 
     private static func statusTitle(_ string: String, color: NSColor,

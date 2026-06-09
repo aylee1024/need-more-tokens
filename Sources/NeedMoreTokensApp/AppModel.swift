@@ -22,6 +22,9 @@ final class AppModel {
 
     private let adapter = EngineAdapter()
     private var loop: Task<Void, Never>?
+    /// The last successful reading, kept so a price-override change can re-price the cards
+    /// instantly without re-spawning codexbar.
+    private var lastFetch: EngineAdapter.Fetch?
 
     var entries: [WidgetSnapshot.Entry] { snapshot?.entries ?? [] }
     var lowestRemainingPercent: Double? { snapshot?.lowestRemainingPercent }
@@ -50,7 +53,9 @@ final class AppModel {
         log.info("refresh: starting fetch")
         do {
             let fetch = try await adapter.fetch()
-            let snap = WidgetSnapshot.build(from: fetch, enabledProviders: Provider.allCases)
+            lastFetch = fetch
+            let snap = WidgetSnapshot.build(from: fetch, enabledProviders: Provider.allCases,
+                                            subscriptionOverrides: PriceOverrides.load())
             snapshot = snap
             engineState = .ok
             lastError = nil
@@ -71,5 +76,20 @@ final class AppModel {
             lastError = "\(error)"
             log.error("refresh: error \(error.localizedDescription, privacy: .public)")
         }
+    }
+
+    /// Re-price the visible cards from the last successful reading when a subscription
+    /// override changes — no codexbar re-spawn, so the change shows instantly. A no-op
+    /// until the first successful fetch.
+    func applyPriceOverrides() {
+        guard let lastFetch else { return }
+        let snap = WidgetSnapshot.build(from: lastFetch, enabledProviders: Provider.allCases,
+                                        subscriptionOverrides: PriceOverrides.load(),
+                                        engineState: engineState)
+        snapshot = snap
+        // Persist so the widget picks the new price up on its next reload. We deliberately
+        // do NOT reloadAllTimelines() here: WidgetKit budgets reloads, and the periodic
+        // refresh already reloads within the cycle — re-pricing per edit must not spend it.
+        WidgetSnapshotStore.save(snap)
     }
 }
