@@ -11,6 +11,7 @@ struct PopoverView: View {
     let model: AppModel
     /// Persistent UI size step (see `UISize`); the A−/A+ controls drive it.
     @AppStorage(UISize.defaultsKey) private var uiSizeStep = UISize.defaultStep
+    @State private var showingSettings = false
 
     private var step: Int { UISize.clampedStep(uiSizeStep) }
     private var uiScale: CGFloat { UISize.scale(for: step) }
@@ -19,14 +20,36 @@ struct PopoverView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            header
-            content
+            if showingSettings {
+                settingsHeader
+                SettingsPaneView(model: model)
+            } else {
+                header
+                content
+            }
             Divider().opacity(0.25)
             footer
         }
         .frame(minWidth: panelMinSize.width, idealWidth: panelIdealSize.width, maxWidth: .infinity,
                minHeight: panelMinSize.height, maxHeight: .infinity, alignment: .top)
         .environment(\.uiScale, uiScale)
+    }
+
+    private var settingsHeader: some View {
+        HStack(spacing: scaled(8)) {
+            Button { showingSettings = false } label: {
+                Image(systemName: "chevron.left")
+                    .font(Theme.font(.subheadline, scale: uiScale, weight: .semibold))
+            }
+            .buttonStyle(.borderless)
+            .help("Back")
+            Text("Settings")
+                .font(Theme.font(.subheadline, scale: uiScale, weight: .semibold))
+            Spacer()
+        }
+        .padding(.horizontal, scaled(14))
+        .padding(.top, scaled(12))
+        .padding(.bottom, scaled(8))
     }
 
     private var header: some View {
@@ -49,6 +72,12 @@ struct PopoverView: View {
                 .buttonStyle(.borderless)
                 .help("Refresh now")
             }
+            Button { showingSettings = true } label: {
+                Image(systemName: "gearshape")
+                    .font(Theme.font(.subheadline, scale: uiScale, weight: .semibold))
+            }
+            .buttonStyle(.borderless)
+            .help("Settings")
         }
         .padding(.horizontal, scaled(14))
         .padding(.top, scaled(12))

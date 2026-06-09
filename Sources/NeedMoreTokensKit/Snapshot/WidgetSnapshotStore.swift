@@ -52,7 +52,9 @@ extension WidgetSnapshot {
                 lifetimeCostUSD: lifetimeCosts[provider] ?? cost?.lifetimeCostUSD,
                 unavailableReason: cost?.unavailableReason
             )
-            let price = subscriptionOverrides[provider]
+            // A non-positive override means "no override" — ignore it here too, not just
+            // in the loader, so this public builder is robust to any caller.
+            let price = subscriptionOverrides[provider].flatMap { $0 > 0 ? $0 : nil }
                 ?? Subscriptions.defaultMonthlyUSD(for: provider, planName: usage?.planName)
             return Entry(
                 provider: provider,
