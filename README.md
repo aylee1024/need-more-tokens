@@ -42,7 +42,7 @@ Needs macOS 26 (Tahoe) and Xcode 26. Build & run — it tucks itself into your m
 
 <div align="center">
 
-Menu bar today; a desktop widget is next.<br>
+Lives quietly in your menu bar.<br>
 Companion to **[lord-claude](https://github.com/aylee1024/lord-claude)** · MIT · built on the lovely **[codexbar](https://github.com/steipete/CodexBar)** by [@steipete](https://github.com/steipete)
 
 </div>
