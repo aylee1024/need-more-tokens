@@ -2,7 +2,7 @@
 
 Plan of record: `~/.claude/plans/create-a-mac-desktop-inherited-flame.md` (approved 2026-06-06).
 
-A native macOS 26 menu-bar app + desktop widget (SwiftUI, Liquid Glass) showing
+A native macOS 26 menu-bar app (SwiftUI, Liquid Glass) showing
 Claude / Codex / Gemini 5-hour + weekly usage and API cost (cycle + lifetime),
 built as a presentation layer over the `codexbar` engine (consumed via its CLI
 JSON, so `brew upgrade codexbar` delivers upstream fixes with zero code change).
@@ -13,7 +13,7 @@ JSON, so `brew upgrade codexbar` delivers upstream fixes with zero code change).
 - [x] M3 — Refresh + snapshot + first live menu-bar UI (working vertical slice) — app builds + runs + shows all 3 providers live
 - [ ] M4 — Lifetime ledger (GRDB): schema + Reconciler + 365 backfill + exhaustive tests
 - [ ] M5 — Liquid Glass polish: popover, status-icon modes, Settings, estimated-cost chips
-- [ ] M6 — Widget extension: SingleProvider + AllThree, App-Intent config, gallery visibility
+- [~] M6 — Widget extension — **DROPPED 2026-06-10** (scope reduced to the menu bar; the `WidgetSnapshot` model stays as the app's own data model)
 - [ ] M7 — Onboarding: binary-missing + provider-disabled flows
 - [ ] M8 — Optional perf mode: codexbar serve client
 - [ ] M9 — Harden + distribute: launch-at-login, CI, notarized release, homebrew tap
@@ -117,3 +117,6 @@ The monthly $ was a hardcoded list-price table keyed off the live plan name; cod
 - **Test-coverage follow-up (Opus):** the load-bearing normalize lived in the untested app target → extracted to `PriceOverrides.normalize` in the Kit + `normalizeTracksDefaultClampsAndKeepsRealEdits`, so the pinning regression can't silently return.
 - **Accepted as designed (NIT):** typing the default in the field tracks it (→0) while tapping the $X chip pins it explicitly — different intents, made legible by the chip bold + Default enablement.
 - **State:** xcodebuild SUCCEEDED 0/0; **swift test 45/45**. New files `PriceOverrides.swift` + `SettingsPaneView.swift` + `PriceOverridesTests.swift` need `git add -A` at commit. Andrew's live visual pass (gear → set Claude $100/$200 → card updates) is the remaining gate.
+
+### 2026-06-10 — Desktop widget dropped from scope
+Andrew cut the widget (M6). The app is menu-bar-only now. The `WidgetSnapshot` / `WidgetSnapshotStore` types **stay** — they are the app's own data model + persistence (the popover renders `WidgetSnapshot.Entry`), not widget-only. Now vestigial without a consumer: the `WidgetCenter.reloadAllTimelines()` calls in the refresh path and the App-Group snapshot save. Left in place for now — harmless, and the door stays open if a widget ever returns; strip on request. The earlier "M6 reload-budget" worry is moot. README + project memory updated.
