@@ -12,6 +12,21 @@ struct SettingsPaneView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: scaled(14)) {
+                Text("DATA SOURCE")
+                    .font(Theme.font(.caption2, scale: uiScale, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+
+                ForEach(Provider.allCases, id: \.self) { provider in
+                    DataSourceRow(
+                        provider: provider,
+                        onChange: dataSourceSettingChanged
+                    )
+                }
+
+                DataSourceFallbackRow(onChange: dataSourceSettingChanged)
+
+                Divider().opacity(0.25)
+
                 Text("MONTHLY SUBSCRIPTION")
                     .font(Theme.font(.caption2, scale: uiScale, weight: .semibold))
                     .foregroundStyle(.tertiary)
@@ -35,7 +50,89 @@ struct SettingsPaneView: View {
         .frame(maxHeight: .infinity)
     }
 
+    private func dataSourceSettingChanged() {
+        model.reloadDataSourceFromDefaults()
+        Task { await model.refresh() }
+    }
+
     private func scaled(_ base: CGFloat) -> CGFloat { UISize.metric(base, scale: uiScale) }
+}
+
+private struct DataSourceRow: View {
+    let provider: Provider
+    let onChange: () -> Void
+    @AppStorage private var policyRaw: String
+    @Environment(\.uiScale) private var uiScale
+
+    init(provider: Provider, onChange: @escaping () -> Void) {
+        self.provider = provider
+        self.onChange = onChange
+        _policyRaw = AppStorage(wrappedValue: DataSourcePolicy.auto.rawValue,
+                                NativeMigrationFlags.policyKey(for: provider))
+    }
+
+    private var policyBinding: Binding<String> {
+        Binding(
+            get: { policyRaw },
+            set: { newValue in
+                let normalized = DataSourcePolicy(rawValue: newValue) ?? .auto
+                guard policyRaw != normalized.rawValue else { return }
+                policyRaw = normalized.rawValue
+                onChange()
+            }
+        )
+    }
+
+    var body: some View {
+        HStack(spacing: scaled(8)) {
+            Text(provider.displayName)
+                .font(Theme.font(.callout, scale: uiScale, weight: .semibold))
+            Spacer(minLength: scaled(8))
+            Picker("", selection: policyBinding) {
+                ForEach(DataSourcePolicy.allCases, id: \.rawValue) { policy in
+                    Text(label(for: policy)).tag(policy.rawValue)
+                }
+            }
+            .labelsHidden()
+            .pickerStyle(.segmented)
+            .frame(width: scaled(210))
+        }
+    }
+
+    private func label(for policy: DataSourcePolicy) -> String {
+        switch policy {
+        case .auto: "Auto"
+        case .native: "Native"
+        case .codexbar: "codexbar"
+        }
+    }
+
+    private func scaled(_ base: CGFloat) -> CGFloat { UISize.metric(base, scale: uiScale) }
+}
+
+private struct DataSourceFallbackRow: View {
+    let onChange: () -> Void
+    @AppStorage(NativeMigrationFlags.fallbackOnErrorKey) private var fallbackOnError = true
+    @Environment(\.uiScale) private var uiScale
+
+    private var fallbackBinding: Binding<Bool> {
+        Binding(
+            get: { fallbackOnError },
+            set: { newValue in
+                guard fallbackOnError != newValue else { return }
+                fallbackOnError = newValue
+                onChange()
+            }
+        )
+    }
+
+    var body: some View {
+        Toggle(isOn: fallbackBinding) {
+            Text("Fall back to codexbar on error")
+                .font(Theme.font(.callout, scale: uiScale, weight: .semibold))
+        }
+        .toggleStyle(.switch)
+    }
 }
 
 /// One provider's price control, bound to its persisted override. An empty/zero override
