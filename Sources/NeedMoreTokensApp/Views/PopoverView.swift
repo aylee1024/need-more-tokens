@@ -12,6 +12,7 @@ struct PopoverView: View {
     /// Persistent UI size step (see `UISize`); the A−/A+ controls drive it.
     @AppStorage(UISize.defaultsKey) private var uiSizeStep = UISize.defaultStep
     @State private var showingSettings = false
+    @State private var confirmingCodexReset = false
 
     private var step: Int { UISize.clampedStep(uiSizeStep) }
     private var uiScale: CGFloat { UISize.scale(for: step) }
@@ -20,7 +21,10 @@ struct PopoverView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if showingSettings {
+            if confirmingCodexReset {
+                confirmHeader
+                ConfirmResetPane(model: model, onDone: { confirmingCodexReset = false })
+            } else if showingSettings {
                 settingsHeader
                 SettingsPaneView(model: model)
             } else {
@@ -33,6 +37,23 @@ struct PopoverView: View {
         .frame(minWidth: panelMinSize.width, idealWidth: panelIdealSize.width, maxWidth: .infinity,
                minHeight: panelMinSize.height, maxHeight: .infinity, alignment: .top)
         .environment(\.uiScale, uiScale)
+    }
+
+    private var confirmHeader: some View {
+        HStack(spacing: scaled(8)) {
+            Button { confirmingCodexReset = false } label: {
+                Image(systemName: "chevron.left")
+                    .font(Theme.font(.subheadline, scale: uiScale, weight: .semibold))
+            }
+            .buttonStyle(.borderless)
+            .help("Back")
+            Text("Use a reset")
+                .font(Theme.font(.subheadline, scale: uiScale, weight: .semibold))
+            Spacer()
+        }
+        .padding(.horizontal, scaled(14))
+        .padding(.top, scaled(12))
+        .padding(.bottom, scaled(8))
     }
 
     private var settingsHeader: some View {
@@ -112,7 +133,11 @@ struct PopoverView: View {
                 GlassEffectContainer(spacing: scaled(10)) {
                     VStack(spacing: scaled(10)) {
                         ForEach(model.entries, id: \.provider) { entry in
-                            ProviderCardView(entry: entry)
+                            ProviderCardView(
+                                entry: entry,
+                                resetCount: entry.provider == .codex ? entry.resetCount : nil,
+                                onUseReset: codexResetAction(for: entry)
+                            )
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .glassEffect(in: .rect(cornerRadius: scaled(16)))
                         }
@@ -189,6 +214,11 @@ struct PopoverView: View {
             .disabled(step >= UISize.maxStep)
         }
         .help("Make the whole UI bigger or smaller")
+    }
+
+    private func codexResetAction(for entry: WidgetSnapshot.Entry) -> (() -> Void)? {
+        guard entry.provider == .codex, model.codexResetMode != .unavailable else { return nil }
+        return { confirmingCodexReset = true }
     }
 
     /// A layout length scaled to the current UI size.

@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import OSLog
 import SwiftUI
@@ -5,6 +6,11 @@ import WidgetKit
 import NeedMoreTokensKit
 
 private let log = Logger(subsystem: "com.aylee1024.needmoretokens", category: "AppModel")
+
+enum CodexResetMode: Equatable {
+    case unavailable
+    case deepLink(URL)
+}
 
 /// Owns the refresh loop and the latest snapshot the UI renders. Lives on the main
 /// actor; the engine work hops off it inside `EngineAdapter`.
@@ -16,6 +22,7 @@ final class AppModel {
     private(set) var lastError: String?
     private(set) var isRefreshing = false
     private(set) var lastRefresh: Date?
+    private(set) var codexResetMode: CodexResetMode
 
     /// Seconds between automatic refreshes.
     var refreshInterval: TimeInterval = 120
@@ -27,11 +34,13 @@ final class AppModel {
     private var lastFetch: ProviderFetch?
 
     init(dataSource: ProviderDataSource? = nil) {
+        self.codexResetMode = AppModel.resolveCodexResetMode()
         self.dataSource = dataSource ?? Self.makeDataSourceFromDefaults()
     }
 
     var entries: [WidgetSnapshot.Entry] { snapshot?.entries ?? [] }
     var lowestRemainingPercent: Double? { snapshot?.lowestRemainingPercent }
+    var codexResetCount: Int? { entries.first { $0.provider == .codex }?.resetCount }
 
     /// Begins the periodic refresh loop (idempotent).
     func start() {
@@ -115,6 +124,11 @@ final class AppModel {
         WidgetSnapshotStore.save(snap)
     }
 
+    func openCodexResetUI() {
+        guard case .deepLink(let url) = codexResetMode else { return }
+        NSWorkspace.shared.open(url)
+    }
+
     private static func makeDataSourceFromDefaults(defaults: UserDefaults = .standard) -> ProviderDataSource {
         // Snapshot the policies into a Sendable dictionary up front so the routing
         // closure captures only Sendable state — UserDefaults is not Sendable and
@@ -129,5 +143,18 @@ final class AppModel {
             policy: { policies[$0] ?? .auto },
             fallbackOnError: fallbackOnError
         )
+    }
+
+    private static func resolveCodexResetMode() -> CodexResetMode {
+        if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.openai.codex") {
+            return .deepLink(url)
+        }
+
+        let fallback = URL(fileURLWithPath: "/Applications/Codex.app")
+        if FileManager.default.fileExists(atPath: fallback.path) {
+            return .deepLink(fallback)
+        }
+
+        return .unavailable
     }
 }

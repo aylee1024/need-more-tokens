@@ -8,7 +8,15 @@ import NeedMoreTokensKit
 /// Fonts and metrics scale from the app-wide `\.uiScale` (macOS has no Dynamic Type).
 struct ProviderCardView: View {
     let entry: WidgetSnapshot.Entry
+    let resetCount: Int?
+    let onUseReset: (() -> Void)?
     @Environment(\.uiScale) private var uiScale
+
+    init(entry: WidgetSnapshot.Entry, resetCount: Int? = nil, onUseReset: (() -> Void)? = nil) {
+        self.entry = entry
+        self.resetCount = resetCount
+        self.onUseReset = onUseReset
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: scaled(10)) {
@@ -28,6 +36,7 @@ struct ProviderCardView: View {
             }
 
             planAndCredits
+            resetButton
         }
         .padding(scaled(14))
     }
@@ -79,6 +88,7 @@ struct ProviderCardView: View {
             }
             Spacer(minLength: 0)
             creditsView
+            resetCountView
         }
     }
 
@@ -95,6 +105,35 @@ struct ProviderCardView: View {
                 .font(Theme.font(.caption2, scale: uiScale))
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
+        }
+    }
+
+    @ViewBuilder private var resetCountView: some View {
+        if CodexReset.isFeatureVisible(provider: entry.provider, resetCount: resetCount),
+           let resetCount {
+            Text(CodexReset.bannerText(count: resetCount))
+                .font(Theme.font(.caption2, scale: uiScale))
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    @ViewBuilder private var resetButton: some View {
+        if CodexReset.isFeatureVisible(provider: entry.provider, resetCount: resetCount),
+           let onUseReset {
+            Button {
+                onUseReset()
+            } label: {
+                HStack(spacing: scaled(8)) {
+                    Text("Use a reset…")
+                    Spacer(minLength: scaled(8))
+                    Image(systemName: "arrow.up.forward.app")
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .buttonStyle(.glass)
+            .font(Theme.font(.callout, scale: uiScale, weight: .medium))
+            .disabled(resetCount == 0)
         }
     }
 
