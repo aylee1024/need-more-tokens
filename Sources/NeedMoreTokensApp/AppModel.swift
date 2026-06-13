@@ -20,11 +20,15 @@ final class AppModel {
     /// Seconds between automatic refreshes.
     var refreshInterval: TimeInterval = 120
 
-    private let adapter = EngineAdapter()
+    private let dataSource: ProviderDataSource
     private var loop: Task<Void, Never>?
     /// The last successful reading, kept so a price-override change can re-price the cards
     /// instantly without re-spawning codexbar.
-    private var lastFetch: EngineAdapter.Fetch?
+    private var lastFetch: ProviderFetch?
+
+    init(dataSource: ProviderDataSource = EngineAdapter()) {
+        self.dataSource = dataSource
+    }
 
     var entries: [WidgetSnapshot.Entry] { snapshot?.entries ?? [] }
     var lowestRemainingPercent: Double? { snapshot?.lowestRemainingPercent }
@@ -52,7 +56,7 @@ final class AppModel {
         defer { isRefreshing = false }
         log.info("refresh: starting fetch")
         do {
-            let fetch = try await adapter.fetch()
+            let fetch = try await dataSource.fetch()
             lastFetch = fetch
             let snap = WidgetSnapshot.build(from: fetch, enabledProviders: Provider.allCases,
                                             subscriptionOverrides: PriceOverrides.load())

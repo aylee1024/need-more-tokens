@@ -128,10 +128,12 @@ public struct ProviderUsage: Sendable, Codable, Equatable {
     public let exactMonthlyCap: MonetaryCap? // Claude's extra-usage cap (used/limit), when present
     public let statusIndicator: String?
     public let updatedAt: Date?
+    public let resetCount: Int?
 
     public init(provider: Provider, windows: [RateWindow], extraWindows: [RateWindow] = [],
                 accountEmail: String?, planName: String?, creditsRemaining: Double?,
-                exactMonthlyCap: MonetaryCap?, statusIndicator: String?, updatedAt: Date?) {
+                exactMonthlyCap: MonetaryCap?, statusIndicator: String?, updatedAt: Date?,
+                resetCount: Int? = nil) {
         self.provider = provider
         self.windows = windows
         self.extraWindows = extraWindows
@@ -141,6 +143,7 @@ public struct ProviderUsage: Sendable, Codable, Equatable {
         self.exactMonthlyCap = exactMonthlyCap
         self.statusIndicator = statusIndicator
         self.updatedAt = updatedAt
+        self.resetCount = resetCount
     }
 
     /// The window closest to exhausting — drives the menu-bar "lowest remaining"

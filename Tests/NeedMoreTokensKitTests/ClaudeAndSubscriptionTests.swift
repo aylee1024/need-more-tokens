@@ -64,4 +64,47 @@ struct SubscriptionsAndSnapshotTests {
         #expect(entry.errorMessage == nil)
         #expect(entry.state == .live)
     }
+
+    @Test func snapshotEntryRoundTripsResetCount() throws {
+        let entry = WidgetSnapshot.Entry(
+            provider: .codex,
+            planName: "Pro 5x",
+            accountEmail: "andrew@example.com",
+            windows: [],
+            cost: WidgetSnapshot.CostSummary(
+                isAvailable: false,
+                isEstimated: false,
+                currencyCode: "USD",
+                cycleCostUSD: nil,
+                lifetimeCostUSD: nil,
+                unavailableReason: nil
+            ),
+            creditsRemaining: 1000,
+            exactMonthlyCap: nil,
+            state: .live,
+            updatedAt: nil,
+            resetCount: 2
+        )
+
+        let data = try JSONEncoder().encode(entry)
+        let decoded = try JSONDecoder().decode(WidgetSnapshot.Entry.self, from: data)
+
+        #expect(decoded == entry)
+        #expect(decoded.resetCount == 2)
+    }
+
+    @Test func snapshotEntryMissingResetCountDecodesAsNil() throws {
+        let json = Data("""
+        {
+          "provider": "codex",
+          "windows": [],
+          "cost": { "isAvailable": false, "isEstimated": false, "currencyCode": "USD" },
+          "state": "live"
+        }
+        """.utf8)
+
+        let entry = try JSONDecoder().decode(WidgetSnapshot.Entry.self, from: json)
+
+        #expect(entry.resetCount == nil)
+    }
 }

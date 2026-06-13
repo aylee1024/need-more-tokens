@@ -31,7 +31,7 @@ extension WidgetSnapshot {
     /// Builds a snapshot from an engine fetch for the enabled providers. Lifetime
     /// costs come from the ledger (empty until milestone 4); when absent, falls back
     /// to the fetch's own lifetime value (nil today).
-    public static func build(from fetch: EngineAdapter.Fetch,
+    public static func build(from fetch: ProviderFetch,
                              enabledProviders: [Provider],
                              lifetimeCosts: [Provider: Double] = [:],
                              subscriptionOverrides: [Provider: Double] = [:],
@@ -68,7 +68,8 @@ extension WidgetSnapshot {
                 exactMonthlyCap: usage?.exactMonthlyCap,
                 state: state,
                 errorMessage: fetch.usageErrors[provider],
-                updatedAt: usage?.updatedAt
+                updatedAt: usage?.updatedAt,
+                resetCount: usage?.resetCount
             )
         }
         return WidgetSnapshot(generatedAt: fetch.generatedAt, engineState: engineState, entries: entries)
