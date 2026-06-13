@@ -20,14 +20,14 @@ final class AppModel {
     /// Seconds between automatic refreshes.
     var refreshInterval: TimeInterval = 120
 
-    private let dataSource: ProviderDataSource
+    private var dataSource: ProviderDataSource
     private var loop: Task<Void, Never>?
     /// The last successful reading, kept so a price-override change can re-price the cards
     /// instantly without re-spawning codexbar.
     private var lastFetch: ProviderFetch?
 
-    init(dataSource: ProviderDataSource = EngineAdapter()) {
-        self.dataSource = dataSource
+    init(dataSource: ProviderDataSource? = nil) {
+        self.dataSource = dataSource ?? Self.makeDataSourceFromDefaults()
     }
 
     var entries: [WidgetSnapshot.Entry] { snapshot?.entries ?? [] }
@@ -50,12 +50,30 @@ final class AppModel {
         loop = nil
     }
 
+    func reloadDataSourceFromDefaults() {
+        dataSource = Self.makeDataSourceFromDefaults()
+    }
+
+    /// Set when refresh() is called while one is already running, so the in-flight
+    /// run loops once more. A settings change rebuilds the data source then asks for
+    /// a refresh — without this, that request would be dropped and the new routing
+    /// wouldn't show until the next timer tick.
+    private var refreshQueued = false
+
     func refresh() async {
-        if isRefreshing { return }
+        if isRefreshing { refreshQueued = true; return }
         isRefreshing = true
         defer { isRefreshing = false }
+        repeat {
+            refreshQueued = false
+            await performFetch()
+        } while refreshQueued
+    }
+
+    private func performFetch() async {
         log.info("refresh: starting fetch")
         do {
+            let dataSource = dataSource
             let fetch = try await dataSource.fetch()
             lastFetch = fetch
             let snap = WidgetSnapshot.build(from: fetch, enabledProviders: Provider.allCases,
@@ -95,5 +113,21 @@ final class AppModel {
         // do NOT reloadAllTimelines() here: WidgetKit budgets reloads, and the periodic
         // refresh already reloads within the cycle — re-pricing per edit must not spend it.
         WidgetSnapshotStore.save(snap)
+    }
+
+    private static func makeDataSourceFromDefaults(defaults: UserDefaults = .standard) -> ProviderDataSource {
+        // Snapshot the policies into a Sendable dictionary up front so the routing
+        // closure captures only Sendable state — UserDefaults is not Sendable and
+        // cannot be captured by the @Sendable policy closure under Swift 6.
+        let policies = Dictionary(uniqueKeysWithValues: Provider.allCases.map {
+            ($0, NativeMigrationFlags.policy(for: $0, in: defaults))
+        })
+        let fallbackOnError = NativeMigrationFlags.fallbackOnError(in: defaults)
+        return RoutingProviderDataSource(
+            native: NativeProviderDataSource(),
+            codexbar: EngineAdapter(),
+            policy: { policies[$0] ?? .auto },
+            fallbackOnError: fallbackOnError
+        )
     }
 }
