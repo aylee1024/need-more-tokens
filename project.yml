@@ -16,8 +16,12 @@ settings:
     SWIFT_STRICT_CONCURRENCY: complete
     MARKETING_VERSION: "0.1.0"
     CURRENT_PROJECT_VERSION: "1"
-    # Local ad-hoc signing so the app runs without an Apple Developer team.
-    # App Group + widget (which need a team) arrive in the next step.
+    # xcodebuild signs ad-hoc (no team/provisioning machinery), then a post-build phase
+    # RE-SIGNS the product with a stable Apple Development cert (see postBuildScripts).
+    # The stable identity-anchored signature is what makes the macOS Keychain
+    # "Always Allow" grant for the Claude Code-credentials item persist across rebuilds —
+    # ad-hoc signatures change hash every build, so the grant never stuck and macOS
+    # re-prompted on every refresh.
     CODE_SIGN_STYLE: Manual
     CODE_SIGN_IDENTITY: "-"
     CODE_SIGNING_REQUIRED: "NO"
@@ -43,3 +47,7 @@ targets:
         INFOPLIST_KEY_LSUIElement: "YES"
         INFOPLIST_KEY_NSHumanReadableCopyright: "© 2026 Andrew Lee — MIT"
         ASSETCATALOG_COMPILER_GENERATE_ASSET_SYMBOLS: "NO"
+        # Build via scripts/build.sh — it re-signs the product with a stable identity
+        # (NMT_SIGN_IDENTITY) AFTER xcodebuild, so the Keychain "Always Allow" grant for
+        # Claude Code-credentials persists across rebuilds. (An in-build postBuildScript
+        # is unreliable here: xcodebuild's own CodeSign phase clobbers it.)
