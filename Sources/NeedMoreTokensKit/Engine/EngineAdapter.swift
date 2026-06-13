@@ -105,7 +105,7 @@ public struct EngineAdapter: Sendable, ProviderDataSource {
         } catch let error as EngineError {
             usageError = Self.describe(error, provider: provider)
         } catch {
-            usageError = "\(error)"
+            usageError = "\(provider.displayName) usage unreadable (\(type(of: error)))"
         }
 
         var cost: ProviderCost?
@@ -125,7 +125,7 @@ public struct EngineAdapter: Sendable, ProviderDataSource {
             } catch let error as EngineError {
                 costFailure = Self.describe(error, provider: provider)
             } catch {
-                costFailure = "\(error)"
+                costFailure = "\(provider.displayName) cost unreadable (\(type(of: error)))"
             }
         }
         return ProviderPartial(
@@ -161,7 +161,9 @@ public struct EngineAdapter: Sendable, ProviderDataSource {
         case .providerMissing: "\(provider.displayName) source not available"
         case .badOutput: "Unreadable engine output"
         case .timeout: "\(provider.displayName) timed out (Keychain prompt?)"
-        case .unexpected(let message): message.isEmpty ? "Unexpected engine error" : message
+        // Never surface .unexpected's associated message — it is codexbar's raw
+        // stderr and can carry sensitive material. Keep it in the value, not the UI.
+        case .unexpected: "Unexpected engine error"
         }
     }
 }

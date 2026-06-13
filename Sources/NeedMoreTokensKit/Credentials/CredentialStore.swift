@@ -20,6 +20,10 @@ public struct CredentialStore: Sendable {
         self.geminiOAuthURL = geminiOAuthURL
     }
 
+    static func hasNoControlCharacters(_ token: String) -> Bool {
+        token.unicodeScalars.allSatisfy { !CharacterSet.controlCharacters.contains($0) }
+    }
+
     public func loadCodexAuth() throws -> CodexAuth {
         try decode(CodexAuth.self, from: codexAuthURL)
     }
@@ -34,6 +38,12 @@ public struct CredentialStore: Sendable {
         guard let accessToken = auth.tokens?.accessToken, !accessToken.isEmpty else {
             throw CredentialAccessError.missingAccessToken(provider: .codex)
         }
+        guard Self.hasNoControlCharacters(accessToken) else {
+            throw CredentialAccessError.invalidCredential(
+                provider: .codex,
+                message: "Codex token is malformed — run the CLI to re-auth"
+            )
+        }
         if auth.isAccessTokenKnownExpired(now: now, skew: skew) {
             throw CredentialAccessError.expired(provider: .codex)
         }
@@ -45,6 +55,12 @@ public struct CredentialStore: Sendable {
         let oauth = try loadGeminiOAuth()
         guard let accessToken = oauth.accessToken, !accessToken.isEmpty else {
             throw CredentialAccessError.missingAccessToken(provider: .gemini)
+        }
+        guard Self.hasNoControlCharacters(accessToken) else {
+            throw CredentialAccessError.invalidCredential(
+                provider: .gemini,
+                message: "Gemini token is malformed — run the CLI to re-auth"
+            )
         }
         if oauth.isAccessTokenKnownExpired(now: now, skew: skew) {
             throw CredentialAccessError.expired(provider: .gemini)

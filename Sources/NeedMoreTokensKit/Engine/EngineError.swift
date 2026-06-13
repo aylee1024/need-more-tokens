@@ -29,7 +29,10 @@ public enum EngineError: Error, Sendable, Equatable {
         case .providerMissing: "Provider source unavailable"
         case .badOutput: "Unreadable engine output"
         case .timeout: "Timed out"
-        case .unexpected(let message): message.isEmpty ? "Unexpected engine error" : message
+        // Do NOT surface the associated message: it is codexbar's raw stderr
+        // ("exit N: <stderr>") which can carry account/path/token-shaped material.
+        // The stderr stays in the error value for diagnostics, never in user text.
+        case .unexpected: "Unexpected engine error"
         }
     }
 }

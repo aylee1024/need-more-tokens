@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import OSLog
+import Security
 import SwiftUI
 import WidgetKit
 import NeedMoreTokensKit
@@ -104,8 +105,8 @@ final class AppModel {
             log.error("refresh: engine error \(error.userMessage, privacy: .public)")
         } catch {
             engineState = .error
-            lastError = "\(error)"
-            log.error("refresh: error \(error.localizedDescription, privacy: .public)")
+            lastError = "Refresh failed (\(type(of: error)))"
+            log.error("refresh: error \(String(describing: type(of: error)), privacy: .public)")
         }
     }
 
@@ -146,15 +147,29 @@ final class AppModel {
     }
 
     private static func resolveCodexResetMode() -> CodexResetMode {
-        if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.openai.codex") {
-            return .deepLink(url)
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.openai.codex"),
+              isCodexSignedByOpenAI(appURL: url) else {
+            return .unavailable
         }
+        return .deepLink(url)
+    }
 
-        let fallback = URL(fileURLWithPath: "/Applications/Codex.app")
-        if FileManager.default.fileExists(atPath: fallback.path) {
-            return .deepLink(fallback)
-        }
-
-        return .unavailable
+    /// Verifies the resolved app is validly signed, Apple-anchored, has the expected
+    /// bundle id, and is signed by OpenAI's Team Identifier (verified on-machine:
+    /// "Developer ID Application: OpenAI OpCo, LLC (2DC432GLL2)"). Fails closed so a
+    /// hijacked LaunchServices registration cannot make NMT launch attacker code.
+    private static func isCodexSignedByOpenAI(appURL: URL) -> Bool {
+        var staticCode: SecStaticCode?
+        guard SecStaticCodeCreateWithPath(appURL as CFURL, [], &staticCode) == errSecSuccess,
+              let code = staticCode else { return false }
+        let reqText = "identifier \"com.openai.codex\" and anchor apple generic and certificate leaf[subject.OU] = \"2DC432GLL2\"" as CFString
+        var requirement: SecRequirement?
+        guard SecRequirementCreateWithString(reqText, [], &requirement) == errSecSuccess,
+              let req = requirement else { return false }
+        // Validate ALL architectures AND nested code (frameworks/helpers) — without
+        // kSecCSCheckNestedCode a tampered nested dylib in an otherwise-signed bundle
+        // would pass. Verified deep+strict on-machine against the real Codex.app.
+        let flags = SecCSFlags(rawValue: UInt32(kSecCSCheckAllArchitectures) | UInt32(kSecCSCheckNestedCode))
+        return SecStaticCodeCheckValidityWithErrors(code, flags, req, nil) == errSecSuccess
     }
 }
