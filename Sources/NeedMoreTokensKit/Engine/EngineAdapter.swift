@@ -98,9 +98,13 @@ public struct EngineAdapter: Sendable {
         var usage: ProviderUsage?
         var usageError: String?
         do {
+            var usageArgs = ["usage", "--format", "json", "--provider", provider.rawValue, "--no-color"]
+            if let source = provider.usageSourceOverride {
+                usageArgs += ["--source", source]
+            }
             let data = try await process.run(
                 executable: binary,
-                arguments: ["usage", "--format", "json", "--provider", provider.rawValue, "--no-color"],
+                arguments: usageArgs,
                 timeout: usageTimeout
             )
             let mapping = EngineMapper.mapUsage(try RawEngineDecoder.usageEnvelopes(from: data))
