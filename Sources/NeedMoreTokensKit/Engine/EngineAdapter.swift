@@ -10,7 +10,7 @@ import Foundation
 /// Usage is required per provider; cost is best-effort (and Gemini, which the engine
 /// cannot price, resolves to `ProviderCost.unavailable`). Lifetime cost is filled
 /// later by the ledger.
-public struct EngineAdapter: Sendable {
+public struct EngineAdapter: Sendable, ProviderDataSource {
     public let locator: BinaryLocator
     public let process: ProcessClient
     public var usageTimeout: TimeInterval
@@ -39,15 +39,7 @@ public struct EngineAdapter: Sendable {
         self.fetchCost = fetchCost
     }
 
-    public struct Fetch: Sendable, Equatable {
-        public var usages: [Provider: ProviderUsage]
-        public var usageErrors: [Provider: String]
-        public var costs: [Provider: ProviderCost]
-        public var generatedAt: Date
-
-        public func usage(for provider: Provider) -> ProviderUsage? { usages[provider] }
-        public func cost(for provider: Provider) -> ProviderCost? { costs[provider] }
-    }
+    public typealias Fetch = ProviderFetch
 
     /// Fetches all `providers` concurrently. Throws `EngineError.binaryMissing` only
     /// when codexbar itself can't be found; any per-provider failure is captured in

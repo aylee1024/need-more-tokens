@@ -53,11 +53,13 @@ public struct WidgetSnapshot: Codable, Sendable, Equatable {
         public var state: ProviderState
         public var errorMessage: String?
         public var updatedAt: Date?
+        public var resetCount: Int?
 
         public init(provider: Provider, planName: String?, accountEmail: String?, windows: [RateWindow],
                     extraWindows: [RateWindow] = [], cost: CostSummary, monthlyPriceUSD: Double? = nil,
                     creditsRemaining: Double?, exactMonthlyCap: MonetaryCap?,
-                    state: ProviderState, errorMessage: String? = nil, updatedAt: Date?) {
+                    state: ProviderState, errorMessage: String? = nil, updatedAt: Date?,
+                    resetCount: Int? = nil) {
             self.provider = provider
             self.planName = planName
             self.accountEmail = accountEmail
@@ -70,6 +72,7 @@ public struct WidgetSnapshot: Codable, Sendable, Equatable {
             self.state = state
             self.errorMessage = errorMessage
             self.updatedAt = updatedAt
+            self.resetCount = resetCount
         }
 
         /// Decode-tolerant: additive fields use `decodeIfPresent` so a snapshot written
@@ -78,7 +81,7 @@ public struct WidgetSnapshot: Codable, Sendable, Equatable {
         /// synthesized from these keys.
         enum CodingKeys: String, CodingKey {
             case provider, planName, accountEmail, windows, extraWindows, cost
-            case monthlyPriceUSD, creditsRemaining, exactMonthlyCap, state, errorMessage, updatedAt
+            case monthlyPriceUSD, creditsRemaining, exactMonthlyCap, state, errorMessage, updatedAt, resetCount
         }
 
         public init(from decoder: Decoder) throws {
@@ -95,6 +98,7 @@ public struct WidgetSnapshot: Codable, Sendable, Equatable {
             state = try c.decodeIfPresent(ProviderState.self, forKey: .state) ?? .loading
             errorMessage = try c.decodeIfPresent(String.self, forKey: .errorMessage)
             updatedAt = try c.decodeIfPresent(Date.self, forKey: .updatedAt)
+            resetCount = try c.decodeIfPresent(Int.self, forKey: .resetCount)
         }
 
         /// Window closest to its limit (incl. extras) — drives the compact glance.
