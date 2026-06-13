@@ -15,6 +15,20 @@ public enum Provider: String, CaseIterable, Codable, Sendable, Hashable {
         }
     }
 
+    /// The codexbar `--source` to force for this provider's usage fetch, or nil to
+    /// let codexbar pick (its `auto` default). Codex's `auto` tries the OpenAI web
+    /// dashboard first, which was measured at 162.9s on this machine (2026-06-12) and
+    /// blew past the 35s usage timeout; the `cli` source returns the same data —
+    /// credits, 5-hour, weekly, plan — in 1.2s, so we pin Codex to `cli`. Claude is
+    /// left on `auto` because its web source supplies the monthly spend cap the CLI
+    /// source omits; Gemini has no fast/slow split worth overriding.
+    public var usageSourceOverride: String? {
+        switch self {
+        case .codex: "cli"
+        case .claude, .gemini: nil
+        }
+    }
+
     /// Maps the engine's provider id (and a few aliases) to a known provider.
     /// Returns nil for anything we don't surface, so a future codexbar provider is
     /// dropped cleanly instead of misrendered.
