@@ -39,12 +39,22 @@ public struct ClaudeCredentialLoader: Sendable {
             )
         }
 
-        guard let access = credential.access else {
+        guard let accessToken = credential.accessToken, !accessToken.isEmpty else {
             throw CredentialAccessError.missingAccessToken(provider: .claude)
+        }
+        guard CredentialStore.hasNoControlCharacters(accessToken) else {
+            throw CredentialAccessError.invalidCredential(
+                provider: .claude,
+                message: "Claude token is malformed — run the CLI to re-auth"
+            )
         }
         if credential.isAccessTokenKnownExpired(now: now, skew: skew) {
             throw CredentialAccessError.expired(provider: .claude)
         }
-        return access
+        let metadata = credential.metadata
+        return ClaudeCredentialAccess(accessToken: accessToken,
+                                      subscriptionType: metadata?.subscriptionType,
+                                      scopes: metadata?.scopes,
+                                      expiresAt: metadata?.expiresAt)
     }
 }
