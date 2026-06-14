@@ -1,16 +1,20 @@
 #!/usr/bin/env bash
-# Build NeedMoreTokens and re-sign with a stable identity so the macOS Keychain
-# "Always Allow" grant for the Claude Code-credentials item (read by the native Claude
-# client) persists across rebuilds. Ad-hoc signatures change hash every build, so the
-# grant never sticks and macOS re-prompts on every refresh.
+# Build + install NeedMoreTokens.
 #
-# Set NMT_SIGN_IDENTITY (a codesigning cert SHA-1 or name, per
-#   security find-identity -v -p codesigning
-# ) in your shell env (e.g. ~/.zprofile). If unset/not found, the app stays ad-hoc —
-# fine for a quick run, but Keychain will re-prompt across rebuilds. No personal
-# identity is committed to this repo.
+# Signing: leave it AD-HOC for local use (the default here). Ad-hoc, locally-built,
+# non-quarantined apps launch fine via Finder/`open`/login items, and the Keychain
+# re-prompt issue is already handled by routing Claude through codexbar (NMT never
+# reads the Keychain in the default config), so a "stable" signature buys nothing.
 #
-# Usage: scripts/build.sh            # build + re-sign
+# NMT_SIGN_IDENTITY (a codesigning identity from `security find-identity -v -p
+# codesigning`) optionally re-signs the product. ONLY use a **Developer ID Application**
+# identity here, and notarize, if you actually distribute the app. Do NOT use an
+# "Apple Development" cert: Gatekeeper REJECTS it (spctl: rejected), so the app gets
+# killed when launched via `open`/LaunchServices/login item and never reaches the menu
+# bar (it only runs when executed directly by path). Unset = ad-hoc = the right choice
+# for local use. No personal identity is committed to this repo.
+#
+# Usage: scripts/build.sh            # build (ad-hoc unless NMT_SIGN_IDENTITY set)
 #        scripts/build.sh --install  # also copy to /Applications and relaunch
 set -euo pipefail
 cd "$(dirname "$0")/.."

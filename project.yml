@@ -16,12 +16,12 @@ settings:
     SWIFT_STRICT_CONCURRENCY: complete
     MARKETING_VERSION: "0.1.0"
     CURRENT_PROJECT_VERSION: "1"
-    # xcodebuild signs ad-hoc (no team/provisioning machinery), then a post-build phase
-    # RE-SIGNS the product with a stable Apple Development cert (see postBuildScripts).
-    # The stable identity-anchored signature is what makes the macOS Keychain
-    # "Always Allow" grant for the Claude Code-credentials item persist across rebuilds —
-    # ad-hoc signatures change hash every build, so the grant never stuck and macOS
-    # re-prompted on every refresh.
+    # Ad-hoc signing — correct for local use. Locally-built, non-quarantined ad-hoc apps
+    # launch fine via open/Finder/login items. Do NOT re-sign with an "Apple Development"
+    # cert: Gatekeeper rejects it and the app won't launch via LaunchServices. (The
+    # Keychain re-prompt that motivated stable signing is already solved by routing
+    # Claude through codexbar — NMT doesn't read the Keychain in the default config.)
+    # See scripts/build.sh for the optional NMT_SIGN_IDENTITY path (Developer ID only).
     CODE_SIGN_STYLE: Manual
     CODE_SIGN_IDENTITY: "-"
     CODE_SIGNING_REQUIRED: "NO"
