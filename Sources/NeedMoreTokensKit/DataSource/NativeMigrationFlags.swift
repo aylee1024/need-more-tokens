@@ -13,12 +13,26 @@ public enum NativeMigrationFlags {
         "nmt.dataSource.\(provider.rawValue)"
     }
 
+    /// Default source when the user hasn't chosen one.
+    /// Claude's OAuth token lives ONLY in the macOS Keychain, and macOS prompts any app
+    /// reading a Keychain item it lacks a persistent ACL grant for. A freshly installed/
+    /// re-signed NMT has no such grant (codexbar, a long-trusted stable binary, does and
+    /// reads it silently), so reading Claude natively re-prompts. Default Claude to
+    /// codexbar (silent) to avoid that; Codex and Gemini read plain credential FILES
+    /// (~/.codex, ~/.gemini) — no Keychain, no prompt — so they default native-first.
+    public static func defaultPolicy(for provider: Provider) -> DataSourcePolicy {
+        switch provider {
+        case .claude: .codexbar
+        case .codex, .gemini: .auto
+        }
+    }
+
     public static func policy(for provider: Provider, in defaults: UserDefaults = .standard) -> DataSourcePolicy {
-        readPolicy(defaults.string(forKey: policyKey(for: provider)))
+        readPolicy(defaults.string(forKey: policyKey(for: provider)), default: defaultPolicy(for: provider))
     }
 
     public static func policy(for provider: Provider, in values: [String: String]) -> DataSourcePolicy {
-        readPolicy(values[policyKey(for: provider)])
+        readPolicy(values[policyKey(for: provider)], default: defaultPolicy(for: provider))
     }
 
     public static func fallbackOnError(in defaults: UserDefaults = .standard) -> Bool {
@@ -33,8 +47,8 @@ public enum NativeMigrationFlags {
         readBool(values[fallbackOnErrorKey]) ?? true
     }
 
-    private static func readPolicy(_ rawValue: String?) -> DataSourcePolicy {
-        guard let rawValue, let policy = DataSourcePolicy(rawValue: rawValue) else { return .auto }
+    private static func readPolicy(_ rawValue: String?, default fallback: DataSourcePolicy) -> DataSourcePolicy {
+        guard let rawValue, let policy = DataSourcePolicy(rawValue: rawValue) else { return fallback }
         return policy
     }
 
