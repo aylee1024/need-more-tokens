@@ -4,11 +4,20 @@ import Testing
 
 @Suite("NativeMigrationFlags")
 struct NativeMigrationFlagsTests {
-    @Test func policyDefaultsToAutoWhenUnsetOrInvalid() {
-        #expect(NativeMigrationFlags.policy(for: .claude, in: [:]) == .auto)
+    @Test func defaultPolicyIsCodexbarForClaudeAndAutoForFileBackedProviders() {
+        // Claude token is Keychain-only → codexbar (silent grant) avoids prompts.
+        #expect(NativeMigrationFlags.defaultPolicy(for: .claude) == .codexbar)
+        // Codex/Gemini read files → native-first.
+        #expect(NativeMigrationFlags.defaultPolicy(for: .codex) == .auto)
+        #expect(NativeMigrationFlags.defaultPolicy(for: .gemini) == .auto)
+    }
+
+    @Test func policyFallsBackToPerProviderDefaultWhenUnsetOrInvalid() {
+        #expect(NativeMigrationFlags.policy(for: .claude, in: [:]) == .codexbar)
+        #expect(NativeMigrationFlags.policy(for: .codex, in: [:]) == .auto)
         #expect(NativeMigrationFlags.policy(for: .claude, in: [
             NativeMigrationFlags.policyKey(for: .claude): "bogus",
-        ]) == .auto)
+        ]) == .codexbar)
     }
 
     @Test func policyReadsPerProviderOverrides() {
@@ -44,7 +53,7 @@ struct NativeMigrationFlagsTests {
         defaults.set(false, forKey: NativeMigrationFlags.fallbackOnErrorKey)
 
         #expect(NativeMigrationFlags.policy(for: .gemini, in: defaults) == .codexbar)
-        #expect(NativeMigrationFlags.policy(for: .claude, in: defaults) == .auto)
+        #expect(NativeMigrationFlags.policy(for: .claude, in: defaults) == .codexbar)  // per-provider default
         #expect(NativeMigrationFlags.fallbackOnError(in: defaults) == false)
     }
 }
