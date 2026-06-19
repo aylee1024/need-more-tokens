@@ -3,6 +3,9 @@ import Foundation
 public struct GeminiUsageClient: Sendable {
     private static let loadCodeAssistURL = URL(string: "https://daily-cloudcode-pa.googleapis.com/v1internal:loadCodeAssist")!
     private static let retrieveQuotaURL = URL(string: "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary")!
+    // The grouped quota endpoint gates its response on the Antigravity CLI's
+    // User-Agent — without it the server returns empty `groups`. Mirror agy.
+    private static let antigravityUserAgent = "antigravity/cli/1.0.9 darwin/arm64"
 
     private let credentialStore: CredentialStore
     private let httpClient: any HTTPClient
@@ -57,6 +60,7 @@ public struct GeminiUsageClient: Sendable {
         request.httpMethod = "POST"
         request.setValue("Bearer \(credential.accessToken)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(antigravityUserAgent, forHTTPHeaderField: "User-Agent")
         request.httpBody = try JSONSerialization.data(withJSONObject: [
             "metadata": [
                 "ideType": "ANTIGRAVITY",
@@ -70,6 +74,7 @@ public struct GeminiUsageClient: Sendable {
         request.httpMethod = "POST"
         request.setValue("Bearer \(credential.accessToken)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(antigravityUserAgent, forHTTPHeaderField: "User-Agent")
         request.httpBody = try JSONSerialization.data(withJSONObject: ["project": project])
         return request
     }
@@ -102,19 +107,23 @@ public struct GeminiUsageClient: Sendable {
             buckets = geminiGroups.flatMap { $0.buckets ?? [] }
         }
 
-        return buckets.compactMap { bucket in
+        return buckets.compactMap { bucket -> RateWindow? in
             guard let remaining = bucket.remainingFraction,
                   remaining.isFinite else { return nil }
             let period = period(for: bucket.window)
+            // Match the Claude/Codex card style: terse period label ("5-hour" /
+            // "Weekly") and let the UI render "Resets in X" from resetsAt rather
+            // than the server's verbose `description` sentence.
             return RateWindow(
-                label: bucket.displayName?.isEmpty == false ? bucket.displayName! : bucket.bucketId ?? period.shortLabel,
+                label: period.shortLabel,
                 period: period,
                 windowMinutes: windowMinutes(for: period),
                 usedPercent: clampPercent((1 - remaining) * 100),
                 resetsAt: EngineMapper.parseDate(bucket.resetTime),
-                resetDescription: bucket.description
+                resetDescription: nil
             )
         }
+        .sorted { $0.windowMinutes < $1.windowMinutes }
     }
 
     private static func period(for window: String?) -> RateWindow.Period {

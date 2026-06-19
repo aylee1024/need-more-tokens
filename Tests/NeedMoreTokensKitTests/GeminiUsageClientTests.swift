@@ -132,13 +132,14 @@ struct GeminiUsageClientTests {
         #expect(usage.provider == .gemini)
         #expect(usage.planName == nil)
         #expect(usage.windows.count == 2)
-        #expect(usage.windows.map(\.period) == [.weekly, .fiveHour])
-        #expect(usage.windows.map(\.windowMinutes) == [10_080, 300])
-        #expect(usage.windows.map(\.label) == ["Weekly Limit", "Five Hour Limit"])
-        #expect(abs(usage.windows[0].usedPercent - 1.50289) < 0.00001)
-        #expect(abs(usage.windows[1].usedPercent - 3.446245) < 0.00001)
-        #expect(usage.windows[0].resetsAt == GeminiClientFixture.date("2026-06-25T23:03:46Z"))
-        #expect(usage.windows[1].resetsAt == GeminiClientFixture.date("2026-06-19T04:03:46Z"))
+        #expect(usage.windows.map(\.period) == [.fiveHour, .weekly])
+        #expect(usage.windows.map(\.windowMinutes) == [300, 10_080])
+        #expect(usage.windows.map(\.label) == ["5-hour", "Weekly"])
+        #expect(usage.windows.allSatisfy { $0.resetDescription == nil })
+        #expect(abs(usage.windows[0].usedPercent - 3.446245) < 0.00001)
+        #expect(abs(usage.windows[1].usedPercent - 1.50289) < 0.00001)
+        #expect(usage.windows[0].resetsAt == GeminiClientFixture.date("2026-06-19T04:03:46Z"))
+        #expect(usage.windows[1].resetsAt == GeminiClientFixture.date("2026-06-25T23:03:46Z"))
         #expect(usage.windows.allSatisfy { !$0.label.contains("3p") })
         #expect(partial.cost.isAvailable == false)
 
@@ -157,6 +158,7 @@ struct GeminiUsageClientTests {
         #expect(quota.method == "POST")
         #expect(quota.headers["Authorization"] == "Bearer gemini-token")
         #expect(quota.headers["Content-Type"] == "application/json")
+        #expect(quota.headers["User-Agent"] == "antigravity/cli/1.0.9 darwin/arm64")
         let quotaBody = try jsonObject(from: quota.body)
         #expect(quotaBody["project"] as? String == "parabolic-zepplin-pw532")
         #expect(Set(quotaBody.keys) == Set(["project"]))
@@ -192,7 +194,7 @@ struct GeminiUsageClientTests {
 
         let usage = try #require(partial.usage)
         #expect(usage.windows.count == 1)
-        #expect(usage.windows[0].label == "Five Hour Limit")
+        #expect(usage.windows[0].label == "5-hour")
         #expect(usage.windows[0].usedPercent == 50)
     }
 

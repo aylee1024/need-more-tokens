@@ -22,7 +22,7 @@ Native macOS 26. Real **Liquid Glass** — no Electron, no web view. It reads yo
 
 ### What you see
 
-Each tool's **5-hour** and **weekly** limits — down to the fiddly bits, like Claude's Sonnet weekly and Gemini's Pro / Flash / Flash-Lite — plus your **monthly plan** and any **pay-as-you-go credits**. The number in your menu bar is whatever's closest to running out, colored green → amber → red as the runway shrinks.
+Each tool's **5-hour** and **weekly** limits — down to the fiddly bits, like Claude's Sonnet weekly and Gemini's **Antigravity** weekly/5-hour quota — plus your **monthly plan** and any **pay-as-you-go credits**, and the exact wall-clock time each window resets. The number in your menu bar is whatever's closest to running out, colored green → amber → red as the runway shrinks.
 
 Letters too small? Tap **A+**. The whole UI scales — *crisply*, because it's real type, not a blurry zoom — and remembers your size. (macOS has no Dynamic Type, so this one's hand-built.)
 
