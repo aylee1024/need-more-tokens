@@ -60,6 +60,19 @@ struct CredentialExpiryTests {
         #expect(CredentialExpiry.millisecondsTimestampKnownExpired(.nan, now: now) == false)
     }
 
+    @Test func geminiAntigravityExpiryDetectsExpiredValidAndUnparseableDates() throws {
+        let expired = try decode(GeminiAntigravityCredential.self, from: geminiAntigravity(expiry: iso(now.addingTimeInterval(-10))))
+        let nearExpiry = try decode(GeminiAntigravityCredential.self, from: geminiAntigravity(expiry: iso(now.addingTimeInterval(30))))
+        let valid = try decode(GeminiAntigravityCredential.self, from: geminiAntigravity(expiry: iso(now.addingTimeInterval(3_600))))
+        let unparseable = try decode(GeminiAntigravityCredential.self, from: geminiAntigravity(expiry: "not-a-date"))
+
+        #expect(expired.isAccessTokenKnownExpired(now: now) == true)
+        #expect(nearExpiry.isAccessTokenKnownExpired(now: now) == true)
+        #expect(valid.isAccessTokenKnownExpired(now: now) == false)
+        #expect(unparseable.isAccessTokenKnownExpired(now: now) == false)
+        #expect(CredentialExpiry.iso8601TimestampKnownExpired(nil, now: now) == false)
+    }
+
     @Test func claudeExpiryDetectsExpiredValidAndUnparseableDates() throws {
         let expired = try decode(ClaudeCredential.self, from: claude(expiresAt: now.addingTimeInterval(-10).timeIntervalSince1970 * 1_000))
         let nearExpiry = try decode(ClaudeCredential.self, from: claude(expiresAt: now.addingTimeInterval(30).timeIntervalSince1970 * 1_000))
@@ -107,7 +120,13 @@ struct CredentialExpiryTests {
             named: "gemini-oauth.json",
             in: dir
         )
-        let store = CredentialStore(codexAuthURL: codexURL, geminiOAuthURL: geminiURL)
+        let store = CredentialStore(
+            codexAuthURL: codexURL,
+            geminiOAuthURL: geminiURL,
+            geminiKeychainReader: ExpiryStubKeychainReader(
+                data: Data(geminiAntigravity(expiry: iso(now.addingTimeInterval(-10))).utf8)
+            )
+        )
 
         expectExpired(.codex) {
             _ = try store.loadCodexAccess(now: now)
@@ -130,6 +149,19 @@ struct CredentialExpiryTests {
         {
           "access_token": "gemini-token",
           "expiry_date": \(expiry)
+        }
+        """
+    }
+
+    private func geminiAntigravity(expiry: String) -> String {
+        """
+        {
+          "token": {
+            "access_token": "gemini-token",
+            "token_type": "Bearer",
+            "expiry": "\(expiry)"
+          },
+          "auth_method": "consumer"
         }
         """
     }
@@ -157,13 +189,23 @@ struct CredentialExpiryTests {
         return url
     }
 
+    private func iso(_ date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.string(from: date)
+    }
+
     private func expectExpired(_ provider: Provider, body: () throws -> Void) {
         do {
             try body()
             Issue.record("expected expired \(provider.displayName) credential")
         } catch let error as CredentialAccessError {
             #expect(error == .expired(provider: provider))
-            #expect(error.userMessage == "\(provider.displayName) token expired — run the CLI to re-auth")
+            if provider == .gemini {
+                #expect(error.userMessage == "\(provider.displayName) token expired — re-auth in Antigravity or run agy")
+            } else {
+                #expect(error.userMessage == "\(provider.displayName) token expired — run the CLI to re-auth")
+            }
         } catch {
             Issue.record("unexpected error \(error)")
         }

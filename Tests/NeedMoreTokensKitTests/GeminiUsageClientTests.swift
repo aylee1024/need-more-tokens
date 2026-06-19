@@ -7,7 +7,7 @@ private enum GeminiClientFixture {
 
     static let loadProject = """
     {
-      "cloudaicompanionProject": "projects/cloud-ai-companion-123",
+      "cloudaicompanionProject": "parabolic-zepplin-pw532",
       "future": {
         "ignored": true
       }
@@ -16,58 +16,101 @@ private enum GeminiClientFixture {
 
     static let quota = """
     {
-      "buckets": [
+      "groups": [
         {
-          "modelId": "gemini-2.5-pro",
-          "tokenType": "tokens",
-          "remainingAmount": "1000",
-          "remainingFraction": 0.25,
-          "resetTime": "2026-06-13T00:00:00Z"
+          "displayName": "Gemini Models",
+          "description": "Models within this group: Gemini Flash, Gemini Pro",
+          "buckets": [
+            {
+              "bucketId": "gemini-weekly",
+              "displayName": "Weekly Limit",
+              "window": "weekly",
+              "resetTime": "2026-06-25T23:03:46Z",
+              "description": "...",
+              "remainingFraction": 0.9849711
+            },
+            {
+              "bucketId": "gemini-5h",
+              "displayName": "Five Hour Limit",
+              "window": "5h",
+              "resetTime": "2026-06-19T04:03:46Z",
+              "description": "...",
+              "remainingFraction": 0.96553755
+            }
+          ]
         },
         {
-          "modelId": "gemini-2.5-flash",
-          "tokenType": "tokens",
-          "remainingAmount": "500",
-          "remainingFraction": 0.8,
-          "resetTime": "2026-06-13T00:00:00Z"
-        },
-        {
-          "modelId": "gemini-2.5-pro",
-          "tokenType": "requests",
-          "remainingAmount": "10",
-          "remainingFraction": 0.1,
-          "resetTime": "2026-06-13T00:00:00Z"
+          "displayName": "Claude and GPT models",
+          "buckets": [
+            {
+              "bucketId": "3p-weekly",
+              "displayName": "Weekly Limit",
+              "window": "weekly",
+              "resetTime": "2026-06-25T23:03:46Z",
+              "description": "...",
+              "remainingFraction": 0.10
+            },
+            {
+              "bucketId": "3p-5h",
+              "displayName": "Five Hour Limit",
+              "window": "5h",
+              "resetTime": "2026-06-19T04:03:46Z",
+              "description": "...",
+              "remainingFraction": 0.20
+            }
+          ]
         }
-      ]
+      ],
+      "description": "..."
     }
     """
 
-    static let singleQuota = """
+    static let fallbackQuota = """
     {
-      "buckets": [
+      "groups": [
         {
-          "modelId": "gemini-2.5-pro",
-          "tokenType": "tokens",
-          "remainingAmount": "1000",
-          "remainingFraction": 0.25,
-          "resetTime": "2026-06-13T00:00:00Z"
+          "displayName": "Renamed Gemini Models",
+          "buckets": [
+            {
+              "bucketId": "gemini-5h",
+              "displayName": "Five Hour Limit",
+              "window": "5h",
+              "remainingFraction": 0.5
+            },
+            {
+              "bucketId": "3p-5h",
+              "displayName": "Five Hour Limit",
+              "window": "5h",
+              "remainingFraction": 0.1
+            }
+          ]
         }
       ]
     }
     """
 
-    static func store(geminiJSON: String = geminiOAuth(accessToken: "gemini-token")) throws -> (CredentialStore, URL) {
+    static func store(geminiJSON: String = antigravityCredential(accessToken: "gemini-token")) throws -> (CredentialStore, URL) {
         try credentialStore(codexJSON: #"{"tokens":{"access_token":"codex-token"}}"#, geminiJSON: geminiJSON)
     }
 
-    static func geminiOAuth(accessToken: String) -> String {
+    static func antigravityCredential(accessToken: String, expiry: String = "2030-01-01T00:00:00Z") -> String {
         """
         {
-          "access_token": "\(accessToken)",
-          "token_type": "Bearer",
-          "expiry_date": 1800000000000
+          "token": {
+            "access_token": "\(accessToken)",
+            "token_type": "Bearer",
+            "refresh_token": "1//refresh",
+            "expiry": "\(expiry)"
+          },
+          "auth_method": "consumer"
         }
         """
+    }
+
+    static func date(_ string: String) -> Date {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.date(from: string)!
     }
 }
 
@@ -88,38 +131,60 @@ struct GeminiUsageClientTests {
         #expect(partial.usageError == nil)
         #expect(usage.provider == .gemini)
         #expect(usage.planName == nil)
-        #expect(usage.windows.map(\.period) == [.daily, .daily])
-        #expect(usage.windows.map(\.label) == ["gemini-2.5-pro", "gemini-2.5-flash"])
-        #expect(usage.windows[0].usedPercent == 90)
-        #expect(abs(usage.windows[1].usedPercent - 20) < 0.0001)
+        #expect(usage.windows.count == 2)
+        #expect(usage.windows.map(\.period) == [.weekly, .fiveHour])
+        #expect(usage.windows.map(\.windowMinutes) == [10_080, 300])
+        #expect(usage.windows.map(\.label) == ["Weekly Limit", "Five Hour Limit"])
+        #expect(abs(usage.windows[0].usedPercent - 1.50289) < 0.00001)
+        #expect(abs(usage.windows[1].usedPercent - 3.446245) < 0.00001)
+        #expect(usage.windows[0].resetsAt == GeminiClientFixture.date("2026-06-25T23:03:46Z"))
+        #expect(usage.windows[1].resetsAt == GeminiClientFixture.date("2026-06-19T04:03:46Z"))
+        #expect(usage.windows.allSatisfy { !$0.label.contains("3p") })
         #expect(partial.cost.isAvailable == false)
 
         let requests = await http.recordedRequests()
         #expect(requests.count == 2)
         let load = requests[0]
-        #expect(load.url?.absoluteString == "https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist")
+        #expect(load.url?.absoluteString == "https://daily-cloudcode-pa.googleapis.com/v1internal:loadCodeAssist")
         #expect(load.method == "POST")
         #expect(load.headers["Authorization"] == "Bearer gemini-token")
         #expect(load.headers["Content-Type"] == "application/json")
         let loadBody = try jsonObject(from: load.body)
-        #expect((loadBody["metadata"] as? [String: Any])?["userAgent"] as? String == "NeedMoreTokens")
+        #expect((loadBody["metadata"] as? [String: Any])?["ideType"] as? String == "ANTIGRAVITY")
 
         let quota = requests[1]
-        #expect(quota.url?.absoluteString == "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota")
+        #expect(quota.url?.absoluteString == "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary")
         #expect(quota.method == "POST")
         #expect(quota.headers["Authorization"] == "Bearer gemini-token")
         #expect(quota.headers["Content-Type"] == "application/json")
         let quotaBody = try jsonObject(from: quota.body)
-        #expect(quotaBody["project"] as? String == "projects/cloud-ai-companion-123")
-        #expect(quotaBody["userAgent"] as? String == "NeedMoreTokens")
+        #expect(quotaBody["project"] as? String == "parabolic-zepplin-pw532")
+        #expect(Set(quotaBody.keys) == Set(["project"]))
     }
 
-    @Test func missingProjectStillRetrievesQuotaWithoutProjectKey() async throws {
+    @Test func missingProjectBecomesUsageErrorWithoutQuotaRequest() async throws {
         let (store, dir) = try GeminiClientFixture.store()
         defer { try? FileManager.default.removeItem(at: dir) }
         let http = StubHTTPClient(responses: [
             .json(#"{}"#),
-            .json(GeminiClientFixture.singleQuota),
+            .json(GeminiClientFixture.quota),
+        ])
+
+        let partial = await GeminiUsageClient(credentialStore: store, httpClient: http)
+            .fetch(now: GeminiClientFixture.now)
+
+        #expect(partial.usage == nil)
+        #expect(partial.usageError?.contains("Gemini usage unreadable") == true)
+        let requests = await http.recordedRequests()
+        #expect(requests.count == 1)
+    }
+
+    @Test func fallsBackToGeminiBucketIDsWhenGroupDisplayNameChanges() async throws {
+        let (store, dir) = try GeminiClientFixture.store()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let http = StubHTTPClient(responses: [
+            .json(GeminiClientFixture.loadProject),
+            .json(GeminiClientFixture.fallbackQuota),
         ])
 
         let partial = await GeminiUsageClient(credentialStore: store, httpClient: http)
@@ -127,10 +192,8 @@ struct GeminiUsageClientTests {
 
         let usage = try #require(partial.usage)
         #expect(usage.windows.count == 1)
-        let requests = await http.recordedRequests()
-        let quotaBody = try jsonObject(from: requests[1].body)
-        #expect(quotaBody["project"] == nil)
-        #expect(quotaBody["userAgent"] as? String == "NeedMoreTokens")
+        #expect(usage.windows[0].label == "Five Hour Limit")
+        #expect(usage.windows[0].usedPercent == 50)
     }
 
     @Test func non200BecomesUsageError() async throws {
@@ -165,7 +228,7 @@ struct GeminiUsageClientTests {
     }
 
     @Test func missingCredentialBecomesUsageErrorWithoutHTTP() async throws {
-        let (store, dir) = try GeminiClientFixture.store(geminiJSON: #"{"token_type":"Bearer"}"#)
+        let (store, dir) = try GeminiClientFixture.store(geminiJSON: #"{"token":{"token_type":"Bearer","expiry":"2030-01-01T00:00:00Z"},"auth_method":"consumer"}"#)
         defer { try? FileManager.default.removeItem(at: dir) }
         let http = StubHTTPClient(responses: [.json(GeminiClientFixture.loadProject)])
 

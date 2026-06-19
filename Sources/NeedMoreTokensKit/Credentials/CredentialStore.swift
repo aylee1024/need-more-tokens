@@ -10,14 +10,25 @@ public struct CredentialStore: Sendable {
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".gemini/oauth_creds.json")
     }
+    public static let defaultGeminiKeychainService = "gemini"
+    public static let defaultGeminiKeychainAccount = "antigravity"
 
     public let codexAuthURL: URL
     public let geminiOAuthURL: URL
+    private let geminiKeychainReader: any KeychainReading
+    private let geminiKeychainService: String
+    private let geminiKeychainAccount: String?
 
     public init(codexAuthURL: URL = CredentialStore.defaultCodexAuthURL,
-                geminiOAuthURL: URL = CredentialStore.defaultGeminiOAuthURL) {
+                geminiOAuthURL: URL = CredentialStore.defaultGeminiOAuthURL,
+                geminiKeychainReader: any KeychainReading = SystemKeychainReader(),
+                geminiKeychainService: String = CredentialStore.defaultGeminiKeychainService,
+                geminiKeychainAccount: String? = CredentialStore.defaultGeminiKeychainAccount) {
         self.codexAuthURL = codexAuthURL
         self.geminiOAuthURL = geminiOAuthURL
+        self.geminiKeychainReader = geminiKeychainReader
+        self.geminiKeychainService = geminiKeychainService
+        self.geminiKeychainAccount = geminiKeychainAccount
     }
 
     static func hasNoControlCharacters(_ token: String) -> Bool {
@@ -52,25 +63,65 @@ public struct CredentialStore: Sendable {
 
     public func loadGeminiAccess(now: Date = Date(),
                                  skew: TimeInterval = CredentialExpiry.defaultSkew) throws -> GeminiCredentialAccess {
-        let oauth = try loadGeminiOAuth()
-        guard let accessToken = oauth.accessToken, !accessToken.isEmpty else {
+        let credential = try loadGeminiAntigravityCredential()
+        guard let accessToken = credential.token?.accessToken, !accessToken.isEmpty else {
             throw CredentialAccessError.missingAccessToken(provider: .gemini)
         }
         guard Self.hasNoControlCharacters(accessToken) else {
             throw CredentialAccessError.invalidCredential(
                 provider: .gemini,
-                message: "Gemini token is malformed — run the CLI to re-auth"
+                message: "Gemini token is malformed — re-auth in Antigravity or run agy"
             )
         }
-        if oauth.isAccessTokenKnownExpired(now: now, skew: skew) {
+        if credential.isAccessTokenKnownExpired(now: now, skew: skew) {
             throw CredentialAccessError.expired(provider: .gemini)
         }
-        return GeminiCredentialAccess(accessToken: accessToken, tokenType: oauth.tokenType, scope: oauth.scope)
+        return GeminiCredentialAccess(accessToken: accessToken, tokenType: credential.token?.tokenType, scope: nil)
     }
 
     private func decode<T: Decodable>(_ type: T.Type, from url: URL) throws -> T {
         let data = try Data(contentsOf: url)
         return try JSONDecoder().decode(type, from: data)
+    }
+
+    private func loadGeminiAntigravityCredential() throws -> GeminiAntigravityCredential {
+        guard let data = try geminiKeychainReader.readGenericPassword(
+            service: geminiKeychainService,
+            account: geminiKeychainAccount
+        ) else {
+            throw CredentialAccessError.missingCredential(
+                provider: .gemini,
+                message: "Gemini credentials not found in Keychain - re-auth in Antigravity or run agy"
+            )
+        }
+        guard let rawValue = String(data: data, encoding: .utf8) else {
+            throw CredentialAccessError.invalidCredential(
+                provider: .gemini,
+                message: "Gemini credentials unreadable - re-auth in Antigravity or run agy"
+            )
+        }
+        let jsonData = try Self.geminiKeychainJSONData(from: rawValue)
+        do {
+            return try JSONDecoder().decode(GeminiAntigravityCredential.self, from: jsonData)
+        } catch {
+            throw CredentialAccessError.invalidCredential(
+                provider: .gemini,
+                message: "Gemini credentials unreadable - re-auth in Antigravity or run agy"
+            )
+        }
+    }
+
+    private static func geminiKeychainJSONData(from rawValue: String) throws -> Data {
+        let prefix = "go-keyring-base64:"
+        guard rawValue.hasPrefix(prefix) else { return Data(rawValue.utf8) }
+        let encoded = String(rawValue.dropFirst(prefix.count))
+        guard let decoded = Data(base64Encoded: encoded) else {
+            throw CredentialAccessError.invalidCredential(
+                provider: .gemini,
+                message: "Gemini credentials unreadable - re-auth in Antigravity or run agy"
+            )
+        }
+        return decoded
     }
 }
 
@@ -150,6 +201,35 @@ public struct GeminiOAuth: Decodable, Sendable, Equatable {
         case expiryDate = "expiry_date"
         case scope
         case idToken = "id_token"
+    }
+}
+
+public struct GeminiAntigravityCredential: Codable, Sendable, Equatable {
+    public let token: Token?
+    public let authMethod: String?
+
+    public func isAccessTokenKnownExpired(now: Date = Date(),
+                                          skew: TimeInterval = CredentialExpiry.defaultSkew) -> Bool {
+        CredentialExpiry.iso8601TimestampKnownExpired(token?.expiry, now: now, skew: skew)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case token
+        case authMethod = "auth_method"
+    }
+
+    public struct Token: Codable, Sendable, Equatable {
+        public let accessToken: String?
+        public let tokenType: String?
+        public let refreshToken: String?
+        public let expiry: String?
+
+        private enum CodingKeys: String, CodingKey {
+            case accessToken = "access_token"
+            case tokenType = "token_type"
+            case refreshToken = "refresh_token"
+            case expiry
+        }
     }
 }
 
@@ -294,7 +374,11 @@ public enum CredentialAccessError: Error, Sendable, Equatable, CustomStringConve
         case .invalidCredential(_, let message):
             message
         case .expired(let provider):
-            "\(provider.displayName) token expired — run the CLI to re-auth"
+            if provider == .gemini {
+                "\(provider.displayName) token expired — re-auth in Antigravity or run agy"
+            } else {
+                "\(provider.displayName) token expired — run the CLI to re-auth"
+            }
         }
     }
 
@@ -320,11 +404,27 @@ public enum CredentialExpiry {
         return secondsTimestampKnownExpired(milliseconds / 1_000, now: now, skew: skew)
     }
 
+    public static func iso8601TimestampKnownExpired(_ string: String?,
+                                                    now: Date = Date(),
+                                                    skew: TimeInterval = defaultSkew) -> Bool {
+        guard let date = parseISO8601Date(string) else { return false }
+        return secondsTimestampKnownExpired(date.timeIntervalSince1970, now: now, skew: skew)
+    }
+
     private static func secondsTimestampKnownExpired(_ seconds: TimeInterval,
                                                      now: Date,
                                                      skew: TimeInterval) -> Bool {
         guard seconds.isFinite else { return false }
         return seconds <= now.addingTimeInterval(skew).timeIntervalSince1970
+    }
+
+    private static func parseISO8601Date(_ string: String?) -> Date? {
+        guard let string, !string.isEmpty else { return nil }
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        if let date = formatter.date(from: string) { return date }
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.date(from: string)
     }
 
     private static func jwtExpiration(_ accessToken: String) -> TimeInterval? {

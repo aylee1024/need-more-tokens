@@ -39,7 +39,7 @@ struct CredentialControlCharTests {
     @Test func geminiAccessTokenWithControlCharacterIsInvalid() throws {
         let (store, dir) = try store(
             codexJSON: #"{"tokens":{"access_token":"codex-token"}}"#,
-            geminiJSON: #"{"access_token":"gemini-token\n","token_type":"Bearer","expiry_date":1800000000000}"#
+            geminiJSON: geminiAntigravityCredential(accessToken: #"gemini-token\n"#)
         )
         defer { try? FileManager.default.removeItem(at: dir) }
 
@@ -51,7 +51,7 @@ struct CredentialControlCharTests {
     @Test func geminiCleanAccessTokenLoads() throws {
         let (store, dir) = try store(
             codexJSON: #"{"tokens":{"access_token":"codex-token"}}"#,
-            geminiJSON: #"{"access_token":"gemini-token","token_type":"Bearer","expiry_date":1800000000000}"#
+            geminiJSON: geminiAntigravityCredential(accessToken: "gemini-token")
         )
         defer { try? FileManager.default.removeItem(at: dir) }
 
@@ -85,7 +85,27 @@ struct CredentialControlCharTests {
         let geminiURL = dir.appendingPathComponent("gemini-oauth.json")
         try Data(codexJSON.utf8).write(to: codexURL)
         try Data(geminiJSON.utf8).write(to: geminiURL)
-        return (CredentialStore(codexAuthURL: codexURL, geminiOAuthURL: geminiURL), dir)
+        return (
+            CredentialStore(
+                codexAuthURL: codexURL,
+                geminiOAuthURL: geminiURL,
+                geminiKeychainReader: ControlCharStubKeychainReader(data: Data(geminiJSON.utf8))
+            ),
+            dir
+        )
+    }
+
+    private func geminiAntigravityCredential(accessToken: String) -> String {
+        """
+        {
+          "token": {
+            "access_token": "\(accessToken)",
+            "token_type": "Bearer",
+            "expiry": "2030-01-01T00:00:00Z"
+          },
+          "auth_method": "consumer"
+        }
+        """
     }
 
     private func claudeCredential(accessToken: String) -> String {
@@ -106,9 +126,15 @@ struct CredentialControlCharTests {
             try body()
             Issue.record("expected invalid \(provider.displayName) credential")
         } catch let error as CredentialAccessError {
+            let message: String
+            if provider == .gemini {
+                message = "\(provider.displayName) token is malformed — re-auth in Antigravity or run agy"
+            } else {
+                message = "\(provider.displayName) token is malformed — run the CLI to re-auth"
+            }
             #expect(error == .invalidCredential(
                 provider: provider,
-                message: "\(provider.displayName) token is malformed — run the CLI to re-auth"
+                message: message
             ))
         } catch {
             Issue.record("unexpected error \(error)")
