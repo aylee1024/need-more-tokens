@@ -1,18 +1,19 @@
 #!/usr/bin/env bash
 # Build + install NeedMoreTokens.
 #
-# Signing: leave it AD-HOC for local use (the default here). Ad-hoc, locally-built,
-# non-quarantined apps launch fine via Finder/`open`/login items, and the Keychain
-# re-prompt issue is already handled by routing Claude through codexbar (NMT never
-# reads the Keychain in the default config), so a "stable" signature buys nothing.
+# Signing: a STABLE code-signing identity keeps the app's designated requirement
+# (DR) constant across rebuilds. NMT now reads agy's Gemini OAuth token from the
+# login Keychain, so the one-time "Always Allow" grant must survive rebuilds — and
+# that grant is keyed to the app's DR. Ad-hoc signatures are cdhash-based and change
+# every build, so they re-prompt forever. This script therefore signs with a stable
+# identity by default, preferring a Developer ID Application, then Apple Development.
 #
-# NMT_SIGN_IDENTITY (a codesigning identity from `security find-identity -v -p
-# codesigning`) optionally re-signs the product. ONLY use a **Developer ID Application**
-# identity here, and notarize, if you actually distribute the app. Do NOT use an
-# "Apple Development" cert: Gatekeeper REJECTS it (spctl: rejected), so the app gets
-# killed when launched via `open`/LaunchServices/login item and never reaches the menu
-# bar (it only runs when executed directly by path). Unset = ad-hoc = the right choice
-# for local use. No personal identity is committed to this repo.
+# (Verified 2026-06-19 on this machine: an Apple-Development-signed, locally-built,
+# NON-quarantined app launches fine via open/LaunchServices and reaches the menu bar.
+# `spctl` reports "rejected" — that is the distribution/notarization assessment and
+# does NOT block a local, non-quarantined launch. Notarize only if you distribute.)
+#
+# Override with NMT_SIGN_IDENTITY="<identity>"; force ad-hoc with NMT_SIGN_IDENTITY="-".
 #
 # Usage: scripts/build.sh            # build (ad-hoc unless NMT_SIGN_IDENTITY set)
 #        scripts/build.sh --install  # also copy to /Applications and relaunch
@@ -24,13 +25,24 @@ xcodebuild -scheme NeedMoreTokens -derivedDataPath build build
 
 APP="build/Build/Products/Debug/NeedMoreTokens.app"
 
-if [ -n "${NMT_SIGN_IDENTITY:-}" ] && security find-identity -v -p codesigning | grep -q "$NMT_SIGN_IDENTITY"; then
-    # Re-sign AFTER xcodebuild so nothing clobbers it.
-    codesign --force --deep --sign "$NMT_SIGN_IDENTITY" "$APP"
-    echo "re-signed with stable identity — Keychain Always-Allow will persist across rebuilds"
-else
-    echo "NMT_SIGN_IDENTITY unset or cert not found; app left ad-hoc (Keychain will re-prompt across rebuilds)"
+# Re-sign AFTER xcodebuild (which signs ad-hoc / "Sign to Run Locally") so the
+# stable identity sticks. Auto-pick the best available identity unless overridden.
+SIGN_ID="${NMT_SIGN_IDENTITY:-}"
+if [ -z "$SIGN_ID" ]; then
+    SIGN_ID="$(security find-identity -v -p codesigning | grep -oE '"Developer ID Application: [^"]*"' | head -1 | tr -d '"' || true)"
+    [ -z "$SIGN_ID" ] && SIGN_ID="$(security find-identity -v -p codesigning | grep -oE '"Apple Development: [^"]*"' | head -1 | tr -d '"' || true)"
 fi
+case "$SIGN_ID" in
+    "" | "-" | adhoc)
+        echo "no stable signing identity; app left ad-hoc (Keychain WILL re-prompt across rebuilds)" ;;
+    *)
+        if security find-identity -v -p codesigning | grep -qF "$SIGN_ID"; then
+            codesign --force --deep --sign "$SIGN_ID" "$APP"
+            echo "re-signed with stable identity ($SIGN_ID) — Keychain Always-Allow persists across rebuilds"
+        else
+            echo "identity '$SIGN_ID' not found; app left ad-hoc"
+        fi ;;
+esac
 codesign -dv "$APP" 2>&1 | grep -iE "flags|TeamIdentifier|Signature=" || true
 
 if [ "${1:-}" = "--install" ]; then
