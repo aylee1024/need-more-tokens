@@ -16,21 +16,21 @@ private struct ThrowingHTTPClient: HTTPClient {
 
 @Suite("Phase 4 hardening")
 struct Phase4HardeningTests {
-    /// Gemini HIGH: a failing loadCodeAssist (e.g. 403) must NOT kill the read —
-    /// the client proceeds project-less and still maps the quota response.
-    @Test func geminiProceedsToQuotaWhenLoadCodeAssistFails() async throws {
+    /// Antigravity's quota endpoint requires the project returned by loadCodeAssist,
+    /// so a bootstrap failure degrades to a ProviderPartial failure without quota IO.
+    @Test func geminiFailsWithoutQuotaRequestWhenLoadCodeAssistFails() async throws {
         let (store, dir) = try credentialStore(
             codexJSON: #"{"tokens":{"access_token":"c"}}"#,
-            geminiJSON: #"{"access_token":"g","token_type":"Bearer","expiry_date":2000000000000}"#)
+            geminiJSON: #"{"token":{"access_token":"g","token_type":"Bearer","expiry":"2030-01-01T00:00:00Z"},"auth_method":"consumer"}"#)
         defer { try? FileManager.default.removeItem(at: dir) }
         let http = StubHTTPClient(results: [
             .response(HTTPResponse(status: 403, body: Data(), headers: [:])),          // loadCodeAssist fails
-            .response(.json(#"{"buckets":[{"modelId":"gemini-2.5-pro","remainingFraction":0.5}]}"#)), // quota OK
+            .response(.json(#"{"groups":[]}"#)),
         ])
         let usage = await GeminiUsageClient(credentialStore: store, httpClient: http).fetch()
-        #expect(usage.usage != nil)
-        #expect(usage.usageError == nil)
-        #expect(usage.usage?.windows.first?.usedPercent == 50)
+        #expect(usage.usage == nil)
+        #expect(usage.usageError?.contains("Gemini usage unreadable") == true)
+        #expect(await http.recordedRequests().count == 1)
     }
 
     /// Both Codex reviewers' HIGH: the generic catch must not interpolate the raw

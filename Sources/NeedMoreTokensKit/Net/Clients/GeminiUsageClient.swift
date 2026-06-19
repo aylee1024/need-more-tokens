@@ -1,8 +1,8 @@
 import Foundation
 
 public struct GeminiUsageClient: Sendable {
-    private static let loadCodeAssistURL = URL(string: "https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist")!
-    private static let retrieveQuotaURL = URL(string: "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota")!
+    private static let loadCodeAssistURL = URL(string: "https://daily-cloudcode-pa.googleapis.com/v1internal:loadCodeAssist")!
+    private static let retrieveQuotaURL = URL(string: "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary")!
 
     private let credentialStore: CredentialStore
     private let httpClient: any HTTPClient
@@ -19,10 +19,7 @@ public struct GeminiUsageClient: Sendable {
     public func fetch(now: Date = Date()) async -> ProviderPartial {
         do {
             let credential = try credentialStore.loadGeminiAccess(now: now)
-            // loadCodeAssist is best-effort: if it errors (HTTP/decode), proceed
-            // with no project and let retrieveUserQuota resolve or degrade — a
-            // transient project lookup must not kill the whole Gemini read.
-            let project = try? await loadProject(credential: credential)
+            let project = try await loadProject(credential: credential)
             let quotaResponse = try await httpClient.send(try Self.retrieveQuotaRequest(credential: credential, project: project), timeout: timeout)
             guard quotaResponse.status == 200 else {
                 return Self.failure("Gemini quota request failed with HTTP \(quotaResponse.status)")
@@ -43,13 +40,15 @@ public struct GeminiUsageClient: Sendable {
         }
     }
 
-    private func loadProject(credential: GeminiCredentialAccess) async throws -> String? {
+    private func loadProject(credential: GeminiCredentialAccess) async throws -> String {
         let response = try await httpClient.send(try Self.loadCodeAssistRequest(credential: credential), timeout: timeout)
         guard response.status == 200 else {
             throw GeminiClientError.http("Gemini Code Assist project request failed with HTTP \(response.status)")
         }
         let payload = try JSONDecoder().decode(RawGeminiLoadCodeAssistPayload.self, from: response.body)
-        guard let project = payload.cloudaicompanionProject, !project.isEmpty else { return nil }
+        guard let project = payload.cloudaicompanionProject, !project.isEmpty else {
+            throw GeminiClientError.http("Gemini Code Assist project missing")
+        }
         return project
     }
 
@@ -60,27 +59,23 @@ public struct GeminiUsageClient: Sendable {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: [
             "metadata": [
-                "userAgent": "NeedMoreTokens",
+                "ideType": "ANTIGRAVITY",
             ],
         ])
         return request
     }
 
-    private static func retrieveQuotaRequest(credential: GeminiCredentialAccess, project: String?) throws -> URLRequest {
+    private static func retrieveQuotaRequest(credential: GeminiCredentialAccess, project: String) throws -> URLRequest {
         var request = URLRequest(url: retrieveQuotaURL)
         request.httpMethod = "POST"
         request.setValue("Bearer \(credential.accessToken)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        var body: [String: Any] = ["userAgent": "NeedMoreTokens"]
-        if let project, !project.isEmpty {
-            body["project"] = project
-        }
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["project": project])
         return request
     }
 
     private static func usage(from payload: RawGeminiQuotaPayload, now: Date) -> ProviderUsage? {
-        let windows = windows(from: payload.buckets ?? [])
+        let windows = windows(from: payload)
         guard !windows.isEmpty else { return nil }
 
         return ProviderUsage(
@@ -95,41 +90,44 @@ public struct GeminiUsageClient: Sendable {
         )
     }
 
-    private static func windows(from buckets: [RawGeminiQuotaBucket]) -> [RateWindow] {
-        var orderedModelIDs: [String] = []
-        var selectedBuckets: [String: RawGeminiQuotaBucket] = [:]
-
-        for bucket in buckets {
-            guard let modelID = bucket.modelID, !modelID.isEmpty else { continue }
-            if selectedBuckets[modelID] == nil {
-                orderedModelIDs.append(modelID)
-                selectedBuckets[modelID] = bucket
-                continue
-            }
-            if let current = selectedBuckets[modelID],
-               remainingFraction(bucket) < remainingFraction(current) {
-                selectedBuckets[modelID] = bucket
-            }
+    private static func windows(from payload: RawGeminiQuotaPayload) -> [RateWindow] {
+        let groups = payload.groups ?? []
+        let geminiGroups = groups.filter { $0.displayName == "Gemini Models" }
+        let buckets: [RawGeminiQuotaBucket]
+        if geminiGroups.isEmpty {
+            buckets = groups
+                .flatMap { $0.buckets ?? [] }
+                .filter { $0.bucketId?.hasPrefix("gemini-") == true }
+        } else {
+            buckets = geminiGroups.flatMap { $0.buckets ?? [] }
         }
 
-        return orderedModelIDs.compactMap { modelID in
-            guard let bucket = selectedBuckets[modelID],
-                  let remaining = bucket.remainingFraction,
+        return buckets.compactMap { bucket in
+            guard let remaining = bucket.remainingFraction,
                   remaining.isFinite else { return nil }
+            let period = period(for: bucket.window)
             return RateWindow(
-                label: modelID,
-                period: .daily,
-                windowMinutes: 1_440,
+                label: bucket.displayName?.isEmpty == false ? bucket.displayName! : bucket.bucketId ?? period.shortLabel,
+                period: period,
+                windowMinutes: windowMinutes(for: period),
                 usedPercent: clampPercent((1 - remaining) * 100),
                 resetsAt: EngineMapper.parseDate(bucket.resetTime),
-                resetDescription: nil
+                resetDescription: bucket.description
             )
         }
     }
 
-    private static func remainingFraction(_ bucket: RawGeminiQuotaBucket) -> Double {
-        guard let value = bucket.remainingFraction, value.isFinite else { return Double.greatestFiniteMagnitude }
-        return value
+    private static func period(for window: String?) -> RateWindow.Period {
+        window == "weekly" ? .weekly : .fiveHour
+    }
+
+    private static func windowMinutes(for period: RateWindow.Period) -> Int {
+        switch period {
+        case .fiveHour: 300
+        case .daily: 1_440
+        case .weekly: 10_080
+        case .other(let minutes): minutes
+        }
     }
 
     private static func clampPercent(_ value: Double) -> Double {

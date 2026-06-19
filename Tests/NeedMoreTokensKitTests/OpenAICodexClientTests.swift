@@ -149,5 +149,22 @@ func credentialStore(codexJSON: String, geminiJSON: String) throws -> (Credentia
     let geminiURL = dir.appendingPathComponent("gemini-oauth.json")
     try Data(codexJSON.utf8).write(to: codexURL)
     try Data(geminiJSON.utf8).write(to: geminiURL)
-    return (CredentialStore(codexAuthURL: codexURL, geminiOAuthURL: geminiURL), dir)
+    return (
+        CredentialStore(
+            codexAuthURL: codexURL,
+            geminiOAuthURL: geminiURL,
+            geminiKeychainReader: TestGeminiKeychainReader(data: Data(geminiJSON.utf8))
+        ),
+        dir
+    )
+}
+
+struct TestGeminiKeychainReader: KeychainReading {
+    let data: Data?
+
+    func readGenericPassword(service: String, account: String?) throws -> Data? {
+        #expect(service == "gemini")
+        #expect(account == "antigravity")
+        return data
+    }
 }
