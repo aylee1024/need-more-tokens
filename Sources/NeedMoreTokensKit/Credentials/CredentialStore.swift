@@ -45,7 +45,17 @@ public struct CredentialStore: Sendable {
 
     public func loadCodexAccess(now: Date = Date(),
                                 skew: TimeInterval = CredentialExpiry.defaultSkew) throws -> CodexCredentialAccess {
-        let auth = try loadCodexAuth()
+        let auth: CodexAuth
+        do {
+            auth = try loadCodexAuth()
+        } catch {
+            // A missing/unreadable ~/.codex/auth.json should drive the re-auth
+            // flow, not surface a raw CocoaError to the UI (mirrors the Gemini path).
+            throw CredentialAccessError.missingCredential(
+                provider: .codex,
+                message: "Codex credentials not found — run the CLI to re-auth"
+            )
+        }
         guard let accessToken = auth.tokens?.accessToken, !accessToken.isEmpty else {
             throw CredentialAccessError.missingAccessToken(provider: .codex)
         }
@@ -113,8 +123,13 @@ public struct CredentialStore: Sendable {
 
     private static func geminiKeychainJSONData(from rawValue: String) throws -> Data {
         let prefix = "go-keyring-base64:"
-        guard rawValue.hasPrefix(prefix) else { return Data(rawValue.utf8) }
-        let encoded = String(rawValue.dropFirst(prefix.count))
+        // go-keyring (the Go lib agy uses) can store a value with a trailing NUL
+        // or newline; strict base64 decoding would reject it and make a valid
+        // token unreadable. Trim whitespace + control chars before decoding.
+        let trimmed = rawValue.trimmingCharacters(
+            in: CharacterSet.whitespacesAndNewlines.union(.controlCharacters))
+        guard trimmed.hasPrefix(prefix) else { return Data(trimmed.utf8) }
+        let encoded = String(trimmed.dropFirst(prefix.count))
         guard let decoded = Data(base64Encoded: encoded) else {
             throw CredentialAccessError.invalidCredential(
                 provider: .gemini,
@@ -231,6 +246,29 @@ public struct GeminiAntigravityCredential: Codable, Sendable, Equatable {
             case expiry
         }
     }
+}
+
+// Defense-in-depth: the *Access structs already redact, but these raw credential
+// containers hold live tokens. Redact them too so an accidental log/interpolation
+// of the container can never leak access/refresh/id tokens.
+extension CodexAuth: CustomStringConvertible, CustomDebugStringConvertible {
+    public var description: String { "CodexAuth(authMode: \(authMode ?? "nil"), tokens: <redacted>, lastRefresh: \(lastRefresh ?? "nil"))" }
+    public var debugDescription: String { description }
+}
+
+extension GeminiOAuth: CustomStringConvertible, CustomDebugStringConvertible {
+    public var description: String { "GeminiOAuth(tokenType: \(tokenType ?? "nil"), scope: \(scope ?? "nil"), accessToken: <redacted>, refreshToken: <redacted>, idToken: <redacted>)" }
+    public var debugDescription: String { description }
+}
+
+extension GeminiAntigravityCredential: CustomStringConvertible, CustomDebugStringConvertible {
+    public var description: String { "GeminiAntigravityCredential(authMethod: \(authMethod ?? "nil"), token: <redacted>)" }
+    public var debugDescription: String { description }
+}
+
+extension ClaudeCredential: CustomStringConvertible, CustomDebugStringConvertible {
+    public var description: String { "ClaudeCredential(claudeAiOauth: <redacted>)" }
+    public var debugDescription: String { description }
 }
 
 public struct ClaudeCredential: Decodable, Sendable, Equatable {
