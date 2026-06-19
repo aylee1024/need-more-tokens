@@ -47,6 +47,41 @@ struct CredentialStoreGeminiAntigravityTests {
         }
     }
 
+    @Test func loadGeminiAccessTrimsTrailingControlCharsFromKeychainValue() throws {
+        // go-keyring can store a value with a trailing newline/NUL; strict base64
+        // would reject it and make a valid token unreadable. The store must trim.
+        let valid = keychainData(accessToken: "ya29.TRIMMED", expiry: "2030-01-01T00:00:00Z")
+        let withTrailingJunk = valid + Data([0x0A, 0x00]) // "\n\0"
+        let store = CredentialStore(
+            geminiKeychainReader: GeminiStoreStubKeychainReader(data: withTrailingJunk)
+        )
+
+        let access = try store.loadGeminiAccess(now: now)
+
+        #expect(access.accessToken == "ya29.TRIMMED")
+    }
+
+    @Test func loadCodexAccessThrowsMissingCredentialWhenFileAbsent() {
+        let missing = FileManager.default.temporaryDirectory
+            .appendingPathComponent("nmt-missing-\(UUID().uuidString)/auth.json")
+        let store = CredentialStore(
+            codexAuthURL: missing,
+            geminiKeychainReader: GeminiStoreStubKeychainReader(data: nil)
+        )
+
+        do {
+            _ = try store.loadCodexAccess(now: now)
+            Issue.record("expected missing Codex credential")
+        } catch let error as CredentialAccessError {
+            #expect(error == .missingCredential(
+                provider: .codex,
+                message: "Codex credentials not found — run the CLI to re-auth"
+            ))
+        } catch {
+            Issue.record("unexpected error \(error)")
+        }
+    }
+
     private func keychainData(accessToken: String, expiry: String) -> Data {
         let json = """
         {

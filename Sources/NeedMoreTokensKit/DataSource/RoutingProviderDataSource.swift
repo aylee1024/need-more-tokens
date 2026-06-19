@@ -169,12 +169,14 @@ public struct RoutingProviderDataSource: ProviderDataSource {
                              providers: [Provider],
                              error: Error,
                              now: Date) -> ProviderFetch {
-        let errors = Dictionary(uniqueKeysWithValues: providers.map { provider in
+        // uniquingKeysWith (not uniqueKeysWithValues) so a duplicate Provider in
+        // the input can never trap with "Duplicate keys found in Dictionary".
+        let errors = Dictionary(providers.map { provider in
             (provider, sourceErrorMessage(source: source, provider: provider, error: error))
-        })
-        let costs = Dictionary(uniqueKeysWithValues: providers.map { provider in
+        }, uniquingKeysWith: { first, _ in first })
+        let costs = Dictionary(providers.map { provider in
             (provider, ProviderCost.unavailable(provider, reason: errors[provider] ?? "Data source failed."))
-        })
+        }, uniquingKeysWith: { first, _ in first })
         return ProviderFetch(usages: [:], usageErrors: errors, costs: costs, generatedAt: now)
     }
 

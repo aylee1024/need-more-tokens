@@ -38,6 +38,10 @@ public struct GeminiUsageClient: Sendable {
                                    cost: Self.unavailableCost())
         } catch let error as CredentialAccessError {
             return Self.failure(error.userMessage)
+        } catch let error as GeminiClientError {
+            // Surface the real cause (e.g. the loadCodeAssist HTTP status) instead
+            // of the opaque type name, so failures are diagnosable.
+            return Self.failure("Gemini usage unreadable: \(error.description)")
         } catch {
             return Self.failure("Gemini usage unreadable (\(type(of: error)))")
         }
@@ -127,7 +131,19 @@ public struct GeminiUsageClient: Sendable {
     }
 
     private static func period(for window: String?) -> RateWindow.Period {
-        window == "weekly" ? .weekly : .fiveHour
+        // Antigravity sends "weekly" and "5h" today; parse defensively so a new
+        // window type (e.g. "daily", "3h", "30d") is not silently shown as 5-hour.
+        switch window {
+        case "weekly": return .weekly
+        case "5h": return .fiveHour
+        case "daily", "1d": return .daily
+        case let w?:
+            if w.hasSuffix("h"), let n = Int(w.dropLast()), n > 0 { return RateWindow.Period(windowMinutes: n * 60) }
+            if w.hasSuffix("d"), let n = Int(w.dropLast()), n > 0 { return RateWindow.Period(windowMinutes: n * 1_440) }
+            return .fiveHour
+        case nil:
+            return .fiveHour
+        }
     }
 
     private static func windowMinutes(for period: RateWindow.Period) -> Int {
@@ -155,7 +171,7 @@ public struct GeminiUsageClient: Sendable {
     }
 }
 
-private enum GeminiClientError: Error, CustomStringConvertible {
+private enum GeminiClientError: Error, Sendable, CustomStringConvertible {
     case http(String)
 
     var description: String {

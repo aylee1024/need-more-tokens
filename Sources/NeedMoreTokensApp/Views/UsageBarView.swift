@@ -46,7 +46,7 @@ struct UsageBarView: View {
                         .fill(Theme.remainingColor(window.remainingPercent).gradient)
                         .frame(width: clampedUsed <= 0
                                ? 0
-                               : max(scaled(3), geometry.size.width * clampedUsed / 100))
+                               : min(geometry.size.width, max(scaled(3), geometry.size.width * clampedUsed / 100)))
                 }
             }
             .frame(height: scaled(7))
@@ -79,6 +79,9 @@ struct UsageBarView: View {
 
     /// "6d 21h" for multi-day, "2h 13m" within a day, "13m" within the hour.
     static func formatTimeUntilReset(_ seconds: TimeInterval) -> String {
+        // Int(seconds) traps on non-finite/overflowing intervals (a corrupt
+        // resetsAt). Guard before converting.
+        guard seconds.isFinite, seconds >= 0, seconds < Double(Int.max) else { return "a while" }
         let total = Int(seconds)
         let days = total / 86_400
         let hours = (total % 86_400) / 3_600
