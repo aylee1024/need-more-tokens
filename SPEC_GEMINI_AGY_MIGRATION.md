@@ -14,6 +14,8 @@ Host: **`daily-cloudcode-pa.googleapis.com`** (NOT the binary-strings guess `bus
 
 2. **Quota** — `POST /v1internal:retrieveUserQuotaSummary`
    - Request body: `{"project":"<cloudaicompanionProject>"}`
+   - **REQUIRED header `User-Agent: antigravity/cli/1.0.9 darwin/arm64`** — the server gates the grouped quota on the Antigravity CLI's UA; without it `groups` comes back empty (live-verified 2026-06-18). NMT mirrors agy's UA.
+   - Tier note: there is also a per-model `:retrieveUserQuota` (top-level `buckets[]` with `modelId`, e.g. gemini-2.5-pro) used by the paid Gemini Code Assist standard-tier. NMT deliberately shows the **Antigravity grouped weekly/5-hour** view (`retrieveUserQuotaSummary`) to match what the `agy` CLI displays, not the per-model list.
    - Response shape (REPLACES the old top-level `buckets[]`/`modelID` shape):
 ```json
 {

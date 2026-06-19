@@ -26,14 +26,6 @@ struct UsageBarView: View {
         return "\(Int(labelPercent.rounded()))%"
     }
 
-    /// Relative dates are formatted on every bar render and every UI-size change; share
-    /// one formatter instead of allocating per render. Used only on the main thread.
-    private nonisolated(unsafe) static let relativeFormatter: RelativeDateTimeFormatter = {
-        let formatter = RelativeDateTimeFormatter()
-        formatter.unitsStyle = .abbreviated
-        return formatter
-    }()
-
     var body: some View {
         VStack(alignment: .leading, spacing: scaled(5)) {
             HStack(spacing: scaled(6)) {
@@ -68,11 +60,32 @@ struct UsageBarView: View {
     }
 
     /// The engine sometimes gives a friendly description ("Resets in 14h 51m"); the
-    /// direct Claude API gives only a timestamp, which we format relatively.
+    /// direct API paths give only a timestamp, which we format to hours+minutes
+    /// (or days+hours for multi-day windows).
     private var resetText: String? {
         if let description = window.resetDescription, !description.isEmpty { return description }
         guard let resetsAt = window.resetsAt else { return nil }
-        return "Resets " + Self.relativeFormatter.localizedString(for: resetsAt, relativeTo: Date())
+        let seconds = resetsAt.timeIntervalSince(Date())
+        guard seconds > 0 else { return "Resets now" }
+        return "Resets in \(Self.formatTimeUntilReset(seconds)) on \(Self.resetTimestampFormatter.string(from: resetsAt))"
+    }
+
+    /// Absolute reset time, e.g. "Thursday, June 19, 4:03 AM".
+    private nonisolated(unsafe) static let resetTimestampFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "EEEE, MMMM d, h:mm a"
+        return formatter
+    }()
+
+    /// "6d 21h" for multi-day, "2h 13m" within a day, "13m" within the hour.
+    static func formatTimeUntilReset(_ seconds: TimeInterval) -> String {
+        let total = Int(seconds)
+        let days = total / 86_400
+        let hours = (total % 86_400) / 3_600
+        let minutes = (total % 3_600) / 60
+        if days > 0 { return "\(days)d \(hours)h" }
+        if hours > 0 { return "\(hours)h \(minutes)m" }
+        return "\(minutes)m"
     }
 
     /// A layout length scaled to the current UI size.
