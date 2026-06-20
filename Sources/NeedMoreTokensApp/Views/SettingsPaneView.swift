@@ -25,6 +25,8 @@ struct SettingsPaneView: View {
 
                 DataSourceFallbackRow(onChange: dataSourceSettingChanged)
 
+                EnableNativeAccessRow(model: model)
+
                 Divider().opacity(0.25)
 
                 Text("MONTHLY SUBSCRIPTION")
@@ -67,7 +69,7 @@ private struct DataSourceRow: View {
     init(provider: Provider, onChange: @escaping () -> Void) {
         self.provider = provider
         self.onChange = onChange
-        _policyRaw = AppStorage(wrappedValue: DataSourcePolicy.auto.rawValue,
+        _policyRaw = AppStorage(wrappedValue: NativeMigrationFlags.defaultPolicy(for: provider).rawValue,
                                 NativeMigrationFlags.policyKey(for: provider))
     }
 
@@ -112,7 +114,7 @@ private struct DataSourceRow: View {
 
 private struct DataSourceFallbackRow: View {
     let onChange: () -> Void
-    @AppStorage(NativeMigrationFlags.fallbackOnErrorKey) private var fallbackOnError = true
+    @AppStorage(NativeMigrationFlags.fallbackOnErrorKey) private var fallbackOnError = false
     @Environment(\.uiScale) private var uiScale
 
     private var fallbackBinding: Binding<Bool> {
@@ -133,6 +135,38 @@ private struct DataSourceFallbackRow: View {
         }
         .toggleStyle(.switch)
     }
+}
+
+/// One-time grant for native Keychain reads. Claude and Gemini store their tokens in the
+/// Keychain (no file), and NMT keeps Keychain prompts disabled in the background — so the
+/// user grants access here once, choosing "Always Allow" for each item, after which the
+/// cards read silently and NMT never prompts on its own again.
+private struct EnableNativeAccessRow: View {
+    let model: AppModel
+    @Environment(\.uiScale) private var uiScale
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: scaled(4)) {
+            Button {
+                Task { await model.enableNativeKeychainAccess() }
+            } label: {
+                HStack(spacing: scaled(6)) {
+                    if model.isSeeding { ProgressView().controlSize(.small) }
+                    Text(model.isSeeding ? "Waiting for Keychain…" : "Enable native access")
+                        .font(Theme.font(.callout, scale: uiScale, weight: .semibold))
+                }
+            }
+            .buttonStyle(.bordered)
+            .disabled(model.isSeeding)
+
+            Text("Claude and Gemini read their tokens from the Keychain. Click once and choose “Always Allow” for each — afterwards NMT never prompts in the background.")
+                .font(Theme.font(.caption2, scale: uiScale))
+                .foregroundStyle(.tertiary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func scaled(_ base: CGFloat) -> CGFloat { UISize.metric(base, scale: uiScale) }
 }
 
 /// One provider's price control, bound to its persisted override. An empty/zero override

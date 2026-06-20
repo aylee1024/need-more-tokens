@@ -34,7 +34,16 @@ final class AppModel {
     /// instantly without re-spawning codexbar.
     private var lastFetch: ProviderFetch?
 
+    /// True while a user-initiated Keychain grant is in flight (interaction is briefly
+    /// permitted). The periodic refresh pauses so it can't race the grant dialog.
+    private(set) var isSeeding = false
+
     init(dataSource: ProviderDataSource? = nil) {
+        // Keystone: a background Keychain read must never present the legacy "allow access"
+        // dialog. Disabling Keychain UI process-wide makes such a read fail cleanly
+        // (errSecAuthFailed) instead of prompting — verified on macOS 26. Interaction is
+        // re-permitted only briefly, by an explicit user action (enableNativeKeychainAccess).
+        KeychainInteraction.disableBackgroundPrompts()
         self.codexResetMode = AppModel.resolveCodexResetMode()
         self.dataSource = dataSource ?? Self.makeDataSourceFromDefaults()
     }
@@ -80,7 +89,52 @@ final class AppModel {
         } while refreshQueued
     }
 
+    /// One-time, user-initiated grant of native Keychain access. Briefly permits the
+    /// Keychain dialog, does a throwaway read of each Keychain-backed item so the user can
+    /// click "Always Allow" once per item (the tokens are discarded — the durable ACL grant
+    /// is the point), then restores the background-safe state and refreshes. Runs the
+    /// blocking reads off the main actor so the UI stays responsive while the dialog is up.
+    func enableNativeKeychainAccess() async {
+        guard !isSeeding else { return }
+        isSeeding = true
+        // Close the race against an already-in-flight background fetch: `isSeeding` (just set)
+        // blocks any NEW fetch (performFetch guards on it), so wait for a current one to drain
+        // BEFORE enabling Keychain interaction. That in-flight read then completes with
+        // interaction still disabled (no prompt), and nothing reads the Keychain while the
+        // grant window below is open. The loop converges because no new fetch can start.
+        while isRefreshing {
+            if Task.isCancelled { isSeeding = false; return }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        // The grant reads block until the user dismisses the dialog — an unbounded wait.
+        // Run them on a dedicated dispatch queue, NOT the Swift cooperative pool, so a slow
+        // click can't starve a cooperative thread. The main actor stays free awaiting the
+        // continuation (isSeeding pauses the periodic refresh meanwhile).
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            DispatchQueue.global(qos: .userInitiated).async {
+                KeychainInteraction.withInteractionAllowed {
+                    let reader = SystemKeychainReader()
+                    _ = try? reader.readGenericPassword(service: ClaudeCredentialLoader.defaultService,
+                                                        account: ClaudeCredentialLoader.defaultAccount)
+                    _ = try? reader.readGenericPassword(service: CredentialStore.defaultGeminiKeychainService,
+                                                        account: CredentialStore.defaultGeminiKeychainAccount)
+                }
+                continuation.resume()
+            }
+        }
+        // Clear the guard BEFORE refreshing so the immediate post-grant fetch is not
+        // skipped by performFetch's `!isSeeding` check.
+        isSeeding = false
+        await refresh()
+    }
+
     private func performFetch() async {
+        // Don't read the Keychain while a grant dialog is up (interaction is permitted);
+        // the periodic refresh resumes once the user has finished granting.
+        guard !isSeeding else { return }
+        // Belt-and-suspenders: keep background prompts disabled even if a prior grant left
+        // interaction toggled (e.g. a crash mid-grant).
+        KeychainInteraction.disableBackgroundPrompts()
         log.info("refresh: starting fetch")
         do {
             let dataSource = dataSource

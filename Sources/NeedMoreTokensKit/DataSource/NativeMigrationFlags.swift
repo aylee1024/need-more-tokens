@@ -13,18 +13,16 @@ public enum NativeMigrationFlags {
         "nmt.dataSource.\(provider.rawValue)"
     }
 
-    /// Default source when the user hasn't chosen one.
-    /// Claude's OAuth token lives ONLY in the macOS Keychain, and macOS prompts any app
-    /// reading a Keychain item it lacks a persistent ACL grant for. A freshly installed/
-    /// re-signed NMT has no such grant (codexbar, a long-trusted stable binary, does and
-    /// reads it silently), so reading Claude natively re-prompts. Default Claude to
-    /// codexbar (silent) to avoid that; Codex and Gemini read plain credential FILES
-    /// (~/.codex, ~/.gemini) — no Keychain, no prompt — so they default native-first.
+    /// Default source when the user hasn't chosen one: fully native for every provider.
+    /// Codex reads ~/.codex/auth.json (a file); Claude and Gemini read the macOS Keychain
+    /// (Claude Code and Antigravity store their tokens there, with no file equivalent).
+    /// A background Keychain read can never present a prompt because the app disables
+    /// Keychain UI process-wide (`KeychainInteraction.disableBackgroundPrompts`); the user
+    /// grants access once via Settings ▸ Enable native access, after which native reads
+    /// return data silently. codexbar is retired from the default path and kept only as a
+    /// manual per-provider option.
     public static func defaultPolicy(for provider: Provider) -> DataSourcePolicy {
-        switch provider {
-        case .claude: .codexbar
-        case .codex, .gemini: .auto
-        }
+        .native
     }
 
     public static func policy(for provider: Provider, in defaults: UserDefaults = .standard) -> DataSourcePolicy {
@@ -35,16 +33,18 @@ public enum NativeMigrationFlags {
         readPolicy(values[policyKey(for: provider)], default: defaultPolicy(for: provider))
     }
 
+    /// codexbar is retired from the default path, so a native error does NOT silently fall
+    /// back to codexbar unless the user explicitly turns this on. Default OFF.
     public static func fallbackOnError(in defaults: UserDefaults = .standard) -> Bool {
-        guard let value = defaults.object(forKey: fallbackOnErrorKey) else { return true }
+        guard let value = defaults.object(forKey: fallbackOnErrorKey) else { return false }
         if let bool = value as? Bool { return bool }
-        if let string = value as? String { return readBool(string) ?? true }
+        if let string = value as? String { return readBool(string) ?? false }
         if let number = value as? NSNumber { return number.boolValue }
-        return true
+        return false
     }
 
     public static func fallbackOnError(in values: [String: String]) -> Bool {
-        readBool(values[fallbackOnErrorKey]) ?? true
+        readBool(values[fallbackOnErrorKey]) ?? false
     }
 
     private static func readPolicy(_ rawValue: String?, default fallback: DataSourcePolicy) -> DataSourcePolicy {

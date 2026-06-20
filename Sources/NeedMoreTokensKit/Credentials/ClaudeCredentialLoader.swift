@@ -22,7 +22,13 @@ public struct ClaudeCredentialLoader: Sendable {
 
     public func load(now: Date = Date(),
                      skew: TimeInterval = CredentialExpiry.defaultSkew) throws -> ClaudeCredentialAccess {
-        guard let data = try keychainReader.readGenericPassword(service: service, account: account) else {
+        let rawData: Data?
+        do {
+            rawData = try keychainReader.readGenericPassword(service: service, account: account)
+        } catch let error as KeychainReadError where error.isAccessNotGranted {
+            throw CredentialAccessError.accessNotGranted(provider: .claude)
+        }
+        guard let data = rawData else {
             throw CredentialAccessError.missingCredential(
                 provider: .claude,
                 message: "Claude credentials not found in Keychain - run the CLI to re-auth"

@@ -95,10 +95,16 @@ public struct CredentialStore: Sendable {
     }
 
     private func loadGeminiAntigravityCredential() throws -> GeminiAntigravityCredential {
-        guard let data = try geminiKeychainReader.readGenericPassword(
-            service: geminiKeychainService,
-            account: geminiKeychainAccount
-        ) else {
+        let data: Data?
+        do {
+            data = try geminiKeychainReader.readGenericPassword(
+                service: geminiKeychainService,
+                account: geminiKeychainAccount
+            )
+        } catch let error as KeychainReadError where error.isAccessNotGranted {
+            throw CredentialAccessError.accessNotGranted(provider: .gemini)
+        }
+        guard let data else {
             throw CredentialAccessError.missingCredential(
                 provider: .gemini,
                 message: "Gemini credentials not found in Keychain - re-auth in Antigravity or run agy"
@@ -402,6 +408,10 @@ public enum CredentialAccessError: Error, Sendable, Equatable, CustomStringConve
     case missingAccessToken(provider: Provider)
     case invalidCredential(provider: Provider, message: String)
     case expired(provider: Provider)
+    /// The provider's token lives in a Keychain item NMT has no ACL grant for, and
+    /// background prompts are disabled, so the read failed without a dialog. The user
+    /// grants access once via Settings ▸ Enable native access.
+    case accessNotGranted(provider: Provider)
 
     public var userMessage: String {
         switch self {
@@ -417,6 +427,8 @@ public enum CredentialAccessError: Error, Sendable, Equatable, CustomStringConve
             } else {
                 "\(provider.displayName) token expired — run the CLI to re-auth"
             }
+        case .accessNotGranted(let provider):
+            "\(provider.displayName) needs Keychain access — Settings ▸ Enable native access"
         }
     }
 
