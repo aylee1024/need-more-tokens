@@ -1,16 +1,15 @@
 import Foundation
 
 /// Best-known monthly subscription price per provider/plan (2026). These are the
-/// flat fees the user pays — distinct from the estimated token "value" the engine
-/// computes. The app surfaces these and lets the user override them, since codexbar
-/// reports a plan name ("Claude Max", "Pro 5x", "Paid") but not always the exact tier.
+/// flat fees the user pays. The app surfaces these and lets the user override them,
+/// since some provider plan names do not identify the exact tier.
 public enum Subscriptions {
     public static func defaultMonthlyUSD(for provider: Provider, planName: String?) -> Double? {
         let plan = (planName ?? "").lowercased()
         switch provider {
         case .claude:
-            // Claude Max: $100 (5×) or $200 (20×). codexbar reports only "Claude Max";
-            // default to 20× ($200) for a heavy user — overridable in settings.
+            // Claude Max: $100 (5×) or $200 (20×). The plan name does not identify
+            // the tier, so default to 20× ($200) and allow a settings override.
             if plan.contains("max") { return 200 }
             if plan.contains("pro") { return 20 }
             return nil

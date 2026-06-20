@@ -14,7 +14,7 @@ enum CodexResetMode: Equatable {
 }
 
 /// Owns the refresh loop and the latest snapshot the UI renders. Lives on the main
-/// actor; the engine work hops off it inside `EngineAdapter`.
+/// actor; native provider reads run inside `NativeProviderDataSource`.
 @MainActor
 @Observable
 final class AppModel {
@@ -31,7 +31,7 @@ final class AppModel {
     private var dataSource: ProviderDataSource
     private var loop: Task<Void, Never>?
     /// The last successful reading, kept so a price-override change can re-price the cards
-    /// instantly without re-spawning codexbar.
+    /// instantly without another provider fetch.
     private var lastFetch: ProviderFetch?
 
     /// True while a user-initiated Keychain grant is in flight (interaction is briefly
@@ -45,7 +45,7 @@ final class AppModel {
         // re-permitted only briefly, by an explicit user action (enableNativeKeychainAccess).
         KeychainInteraction.disableBackgroundPrompts()
         self.codexResetMode = AppModel.resolveCodexResetMode()
-        self.dataSource = dataSource ?? Self.makeDataSourceFromDefaults()
+        self.dataSource = dataSource ?? NativeProviderDataSource()
     }
 
     var entries: [WidgetSnapshot.Entry] { snapshot?.entries ?? [] }
@@ -69,14 +69,9 @@ final class AppModel {
         loop = nil
     }
 
-    func reloadDataSourceFromDefaults() {
-        dataSource = Self.makeDataSourceFromDefaults()
-    }
-
     /// Set when refresh() is called while one is already running, so the in-flight
-    /// run loops once more. A settings change rebuilds the data source then asks for
-    /// a refresh — without this, that request would be dropped and the new routing
-    /// wouldn't show until the next timer tick.
+    /// run loops once more. Without this, a user-triggered refresh during an active
+    /// fetch would be dropped until the next timer tick.
     private var refreshQueued = false
 
     func refresh() async {
@@ -153,10 +148,6 @@ final class AppModel {
                 // Don't reload the widget onto a snapshot we failed to persist.
                 log.error("refresh: snapshot save failed; widget left on previous data")
             }
-        } catch let error as EngineError {
-            engineState = (error == .binaryMissing) ? .binaryMissing : .error
-            lastError = error.userMessage
-            log.error("refresh: engine error \(error.userMessage, privacy: .public)")
         } catch {
             engineState = .error
             lastError = "Refresh failed (\(type(of: error)))"
@@ -165,7 +156,7 @@ final class AppModel {
     }
 
     /// Re-price the visible cards from the last successful reading when a subscription
-    /// override changes — no codexbar re-spawn, so the change shows instantly. A no-op
+    /// override changes, so the change shows instantly. A no-op
     /// until the first successful fetch.
     func applyPriceOverrides() {
         guard let lastFetch else { return }
@@ -182,22 +173,6 @@ final class AppModel {
     func openCodexResetUI() {
         guard case .deepLink(let url) = codexResetMode else { return }
         NSWorkspace.shared.open(url)
-    }
-
-    private static func makeDataSourceFromDefaults(defaults: UserDefaults = .standard) -> ProviderDataSource {
-        // Snapshot the policies into a Sendable dictionary up front so the routing
-        // closure captures only Sendable state — UserDefaults is not Sendable and
-        // cannot be captured by the @Sendable policy closure under Swift 6.
-        let policies = Dictionary(uniqueKeysWithValues: Provider.allCases.map {
-            ($0, NativeMigrationFlags.policy(for: $0, in: defaults))
-        })
-        let fallbackOnError = NativeMigrationFlags.fallbackOnError(in: defaults)
-        return RoutingProviderDataSource(
-            native: NativeProviderDataSource(),
-            codexbar: EngineAdapter(),
-            policy: { policies[$0] ?? .auto },
-            fallbackOnError: fallbackOnError
-        )
     }
 
     private static func resolveCodexResetMode() -> CodexResetMode {

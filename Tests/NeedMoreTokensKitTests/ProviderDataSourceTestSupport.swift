@@ -109,11 +109,10 @@ private func usedPercent(for provider: Provider) -> Double {
     }
 }
 
-private func costAmount(for provider: Provider, source: String) -> Double {
-    let base: Double = switch provider {
+private func costAmount(for provider: Provider, source _: String) -> Double {
+    switch provider {
     case .claude: 1
     case .codex: 2
     case .gemini: 3
     }
-    return source == "codexbar" ? base + 10 : base
 }

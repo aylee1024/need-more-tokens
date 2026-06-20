@@ -2,9 +2,8 @@ import SwiftUI
 import NeedMoreTokensKit
 
 /// The in-popover settings pane. Today it sets the per-provider monthly subscription
-/// price — codexbar reports the plan but not always the exact tier (e.g. Claude Max 5×
-/// $100 vs 20× $200), so a manual override settles it. It's the home for later settings
-/// too. Scales with the app-wide `\.uiScale` like the rest of the popover.
+/// price and exposes the one-time Keychain grant for native provider reads.
+/// Scales with the app-wide `\.uiScale` like the rest of the popover.
 struct SettingsPaneView: View {
     let model: AppModel
     @Environment(\.uiScale) private var uiScale
@@ -12,18 +11,9 @@ struct SettingsPaneView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: scaled(14)) {
-                Text("DATA SOURCE")
+                Text("KEYCHAIN ACCESS")
                     .font(Theme.font(.caption2, scale: uiScale, weight: .semibold))
                     .foregroundStyle(.tertiary)
-
-                ForEach(Provider.allCases, id: \.self) { provider in
-                    DataSourceRow(
-                        provider: provider,
-                        onChange: dataSourceSettingChanged
-                    )
-                }
-
-                DataSourceFallbackRow(onChange: dataSourceSettingChanged)
 
                 EnableNativeAccessRow(model: model)
 
@@ -41,7 +31,7 @@ struct SettingsPaneView: View {
                     )
                 }
 
-                Text("Each provider shows its detected price. Override it — codexbar reports your plan, not the exact tier, so set Claude to $100 or $200 to match. “Default” reverts.")
+                Text("Each provider shows its detected price. Override it when the detected plan is ambiguous, such as setting Claude to $100 or $200. “Default” reverts.")
                     .font(Theme.font(.caption2, scale: uiScale))
                     .foregroundStyle(.tertiary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -52,89 +42,7 @@ struct SettingsPaneView: View {
         .frame(maxHeight: .infinity)
     }
 
-    private func dataSourceSettingChanged() {
-        model.reloadDataSourceFromDefaults()
-        Task { await model.refresh() }
-    }
-
     private func scaled(_ base: CGFloat) -> CGFloat { UISize.metric(base, scale: uiScale) }
-}
-
-private struct DataSourceRow: View {
-    let provider: Provider
-    let onChange: () -> Void
-    @AppStorage private var policyRaw: String
-    @Environment(\.uiScale) private var uiScale
-
-    init(provider: Provider, onChange: @escaping () -> Void) {
-        self.provider = provider
-        self.onChange = onChange
-        _policyRaw = AppStorage(wrappedValue: NativeMigrationFlags.defaultPolicy(for: provider).rawValue,
-                                NativeMigrationFlags.policyKey(for: provider))
-    }
-
-    private var policyBinding: Binding<String> {
-        Binding(
-            get: { policyRaw },
-            set: { newValue in
-                let normalized = DataSourcePolicy(rawValue: newValue) ?? .auto
-                guard policyRaw != normalized.rawValue else { return }
-                policyRaw = normalized.rawValue
-                onChange()
-            }
-        )
-    }
-
-    var body: some View {
-        HStack(spacing: scaled(8)) {
-            Text(provider.displayName)
-                .font(Theme.font(.callout, scale: uiScale, weight: .semibold))
-            Spacer(minLength: scaled(8))
-            Picker("", selection: policyBinding) {
-                ForEach(DataSourcePolicy.allCases, id: \.rawValue) { policy in
-                    Text(label(for: policy)).tag(policy.rawValue)
-                }
-            }
-            .labelsHidden()
-            .pickerStyle(.segmented)
-            .frame(width: scaled(210))
-        }
-    }
-
-    private func label(for policy: DataSourcePolicy) -> String {
-        switch policy {
-        case .auto: "Auto"
-        case .native: "Native"
-        case .codexbar: "codexbar"
-        }
-    }
-
-    private func scaled(_ base: CGFloat) -> CGFloat { UISize.metric(base, scale: uiScale) }
-}
-
-private struct DataSourceFallbackRow: View {
-    let onChange: () -> Void
-    @AppStorage(NativeMigrationFlags.fallbackOnErrorKey) private var fallbackOnError = false
-    @Environment(\.uiScale) private var uiScale
-
-    private var fallbackBinding: Binding<Bool> {
-        Binding(
-            get: { fallbackOnError },
-            set: { newValue in
-                guard fallbackOnError != newValue else { return }
-                fallbackOnError = newValue
-                onChange()
-            }
-        )
-    }
-
-    var body: some View {
-        Toggle(isOn: fallbackBinding) {
-            Text("Fall back to codexbar on error")
-                .font(Theme.font(.callout, scale: uiScale, weight: .semibold))
-        }
-        .toggleStyle(.switch)
-    }
 }
 
 /// One-time grant for native Keychain reads. Claude and Gemini store their tokens in the
