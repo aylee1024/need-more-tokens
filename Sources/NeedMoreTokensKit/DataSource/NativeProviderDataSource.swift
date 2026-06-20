@@ -60,9 +60,9 @@ public struct NativeProviderDataSource: ProviderDataSource {
 
     /// Races the client fetch against a deadline. A client's credential read (e.g. a
     /// Keychain access prompt) happens BEFORE its HTTP timeout and can block, so
-    /// without this the whole composite — and the routing fallback that runs only
-    /// after it returns — would hang. On timeout we return a usageError partial so
-    /// the composite always completes and `.auto` routing can fall back to codexbar.
+    /// without this the whole composite would hang. On timeout we return a
+    /// usageError partial so the composite always completes and other providers
+    /// stay live.
     private static func fetchWithTimeout(provider: Provider,
                                          fetcher: @escaping ClientFetch,
                                          now: Date,

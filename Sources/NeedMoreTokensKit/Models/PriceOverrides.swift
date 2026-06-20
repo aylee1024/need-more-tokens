@@ -3,10 +3,9 @@ import Foundation
 /// Per-provider monthly subscription-price overrides, persisted in UserDefaults.
 ///
 /// The app shows the detected list price by default (`Subscriptions.defaultMonthlyUSD`),
-/// but codexbar can't always resolve the exact tier — most notably Claude Max, where it
-/// can't tell 5× ($100) from 20× ($200). A user override settles that and also covers any
-/// future price drift. Stored as a `Double` per provider; **0 or absent means "no override
-/// — use the detected default"** (you'd never set a paid plan to $0, and clearing reverts).
+/// but a provider's plan name does not always resolve the exact tier. A user override
+/// settles that and also covers any future price drift. Stored as a `Double` per
+/// provider; **0 or absent means "no override — use the detected default"**.
 public enum PriceOverrides {
     public static func key(for provider: Provider) -> String {
         "priceOverrideUSD.\(provider.rawValue)"

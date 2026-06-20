@@ -6,8 +6,7 @@ import Testing
 struct Phase5HardeningTests {
     /// A native client that blocks (e.g. on a Keychain access prompt, which happens
     /// before any HTTP timeout) must NOT stall the whole composite — it must time out
-    /// to a usageError partial so the composite returns and `.auto` routing can fall
-    /// back to codexbar. Other providers must stay live.
+    /// to a usageError partial so the composite returns. Other providers must stay live.
     @Test func hungClientTimesOutWhileOthersStayLive() async {
         let liveUsage: @Sendable (Provider) -> ProviderUsage = { p in
             ProviderUsage(provider: p, windows: [], extraWindows: [], accountEmail: nil,

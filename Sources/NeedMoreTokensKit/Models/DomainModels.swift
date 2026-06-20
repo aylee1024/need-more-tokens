@@ -1,7 +1,7 @@
 import Foundation
 
-/// The three providers Need More Tokens surfaces. Raw provider strings from the
-/// engine are normalized into these (see `Provider.normalized`).
+/// The three providers Need More Tokens surfaces. Provider strings from remote
+/// APIs are normalized into these (see `Provider.normalized`).
 public enum Provider: String, CaseIterable, Codable, Sendable, Hashable {
     case claude
     case codex
@@ -15,23 +15,8 @@ public enum Provider: String, CaseIterable, Codable, Sendable, Hashable {
         }
     }
 
-    /// The codexbar `--source` to force for this provider's usage fetch, or nil to
-    /// let codexbar pick (its `auto` default). Codex's `auto` tries the OpenAI web
-    /// dashboard first, which was measured at 162.9s on this machine (2026-06-12) and
-    /// blew past the 35s usage timeout; the `cli` source returns the same data —
-    /// credits, 5-hour, weekly, plan — in 1.2s, so we pin Codex to `cli`. Claude is
-    /// left on `auto` because its web source supplies the monthly spend cap the CLI
-    /// source omits; Gemini has no fast/slow split worth overriding.
-    public var usageSourceOverride: String? {
-        switch self {
-        case .codex: "cli"
-        case .claude, .gemini: nil
-        }
-    }
-
-    /// Maps the engine's provider id (and a few aliases) to a known provider.
-    /// Returns nil for anything we don't surface, so a future codexbar provider is
-    /// dropped cleanly instead of misrendered.
+    /// Maps provider ids and a few aliases to a known provider.
+    /// Returns nil for anything we don't surface.
     public static func normalized(_ raw: String?) -> Provider? {
         switch raw?.lowercased() {
         case "claude", "claude-code", "anthropic": .claude
@@ -42,15 +27,11 @@ public enum Provider: String, CaseIterable, Codable, Sendable, Hashable {
     }
 }
 
-/// A rate-limit window, labeled by its real period. The engine reports windows by
-/// `windowMinutes`, which differ per provider — Codex/Claude use 5-hour (300) and
-/// weekly (10080); Gemini uses daily (1440). We never hardcode "5-hour/weekly"
-/// onto a provider that does not report it.
+/// A rate-limit window, labeled by its real period.
 public struct RateWindow: Sendable, Codable, Equatable {
-    /// Display name for this window. Grounded in codexbar's documented mapping:
+    /// Display name for this window. Grounded in each provider's quota shape:
     /// for Gemini the windows are per-model (Pro / Flash / Flash Lite); for Claude
-    /// the duplicate weekly is the model-specific (Opus) weekly cap. Falls back to
-    /// the period label.
+    /// the duplicate weekly is model-specific. Falls back to the period label.
     public let label: String
     public let period: Period
     public let windowMinutes: Int
@@ -120,10 +101,10 @@ public struct MonetaryCap: Sendable, Codable, Equatable {
 /// Usage for one provider: its rate windows plus account/plan metadata.
 public struct ProviderUsage: Sendable, Codable, Equatable {
     public let provider: Provider
-    public let windows: [RateWindow]        // primary, secondary, tertiary that are present, in order
-    public let extraWindows: [RateWindow]   // engine extraRateWindows (e.g. Claude "Daily Routines")
+    public let windows: [RateWindow]
+    public let extraWindows: [RateWindow]
     public let accountEmail: String?
-    public let planName: String?            // engine "loginMethod": "Claude Max", "Pro 5x", "Paid"
+    public let planName: String?
     public let creditsRemaining: Double?
     public let exactMonthlyCap: MonetaryCap? // Claude's extra-usage cap (used/limit), when present
     public let statusIndicator: String?
@@ -156,7 +137,7 @@ public struct ProviderUsage: Sendable, Codable, Equatable {
 
 /// One day's cost for a provider (the unit the lifetime ledger accumulates).
 public struct DailyCost: Sendable, Codable, Equatable {
-    public let dayKey: String          // "YYYY-MM-DD" as the engine emits (provider-local)
+    public let dayKey: String
     public let totalTokens: Int
     public let totalCostUSD: Double
 
@@ -167,10 +148,10 @@ public struct DailyCost: Sendable, Codable, Equatable {
     }
 }
 
-/// Cost for one provider. `isAvailable` is false where the engine cannot compute
-/// cost (Gemini today), so the UI shows an honest "n/a" instead of a fake $0.
+/// Cost for one provider. `isAvailable` is false where a client cannot compute
+/// cost, so the UI shows an honest "n/a" instead of a fake $0.
 /// `isEstimated` is true when the figure comes from local token logs × public
-/// prices (engine source "local") rather than an exact billing source.
+/// prices rather than an exact billing source.
 public struct ProviderCost: Sendable, Codable, Equatable {
     public let provider: Provider
     public let isAvailable: Bool
@@ -200,7 +181,7 @@ public struct ProviderCost: Sendable, Codable, Equatable {
         self.updatedAt = updatedAt
     }
 
-    /// A cost result for a provider the engine cannot price (e.g. Gemini).
+    /// A cost result for a provider the client cannot price.
     public static func unavailable(_ provider: Provider, reason: String) -> ProviderCost {
         ProviderCost(provider: provider, isAvailable: false, unavailableReason: reason, isEstimated: false,
                      currencyCode: "USD", sessionCostUSD: nil, last30DaysCostUSD: nil, cycleCostUSD: nil,

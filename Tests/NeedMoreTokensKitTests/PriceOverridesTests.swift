@@ -31,7 +31,7 @@ struct PriceOverridesTests {
             provider: .claude, windows: [], accountEmail: nil, planName: "Claude Max",
             creditsRemaining: nil, exactMonthlyCap: nil, statusIndicator: nil, updatedAt: nil
         )
-        let fetch = EngineAdapter.Fetch(
+        let fetch = ProviderFetch(
             usages: [.claude: usage], usageErrors: [:], costs: [:], generatedAt: Date()
         )
 
@@ -51,7 +51,7 @@ struct PriceOverridesTests {
             provider: .claude, windows: [], accountEmail: nil, planName: "Claude Max",
             creditsRemaining: nil, exactMonthlyCap: nil, statusIndicator: nil, updatedAt: nil
         )
-        let fetch = EngineAdapter.Fetch(
+        let fetch = ProviderFetch(
             usages: [.claude: usage], usageErrors: [:], costs: [:], generatedAt: Date()
         )
         // A 0/negative override means "no override" — fall back to the detected default,
@@ -79,7 +79,7 @@ struct PriceOverridesTests {
     }
 
     @Test func buildPreservesEngineState() {
-        let fetch = EngineAdapter.Fetch(usages: [:], usageErrors: [:], costs: [:], generatedAt: Date())
+        let fetch = ProviderFetch(usages: [:], usageErrors: [:], costs: [:], generatedAt: Date())
         #expect(WidgetSnapshot.build(from: fetch, enabledProviders: []).engineState == .ok)
         #expect(WidgetSnapshot.build(from: fetch, enabledProviders: [], engineState: .error)
             .engineState == .error)

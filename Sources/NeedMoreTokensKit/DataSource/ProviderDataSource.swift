@@ -21,7 +21,7 @@ public struct ProviderFetch: Sendable, Equatable {
 }
 
 /// Data source contract: per-provider failures land in `usageErrors` and are
-/// never thrown; only whole-run preconditions (e.g. binary missing) throw.
+/// never thrown; only whole-run preconditions throw.
 public protocol ProviderDataSource: Sendable {
     func fetch(providers: [Provider], cycleAnchorDay: Int, now: Date) async throws -> ProviderFetch
 }

@@ -8,7 +8,7 @@
 &nbsp;![macOS 26 Tahoe](https://img.shields.io/badge/macOS-26_Tahoe-000000?logo=apple&logoColor=white)
 &nbsp;![Swift 6](https://img.shields.io/badge/Swift-6-F05138?logo=swift&logoColor=white)
 &nbsp;![Liquid Glass](https://img.shields.io/badge/UI-Liquid_Glass-9b8cff)
-&nbsp;![Engine: codexbar](https://img.shields.io/badge/engine-codexbar-ff8a3d)
+&nbsp;![Native HTTPS clients](https://img.shields.io/badge/clients-native_HTTPS-2da44e)
 
 **A tiny menu-bar gauge for your Claude · Codex · Gemini runway.**
 
@@ -18,7 +18,7 @@
 
 You wired up [lord-claude](https://github.com/aylee1024/lord-claude), so Claude is busy handing work off to Codex and Gemini while three usage meters you can't see tick quietly toward empty. **This is the gauge for that.** It lives in your menu bar and tells you, at a glance, how much runway is left before something says *"limit reached."*
 
-Native macOS 26. Real **Liquid Glass** — no Electron, no web view. It reads your usage locally and sends nothing anywhere; your token anxiety stays between you and your laptop.
+Native macOS 26. Real **Liquid Glass** — no Electron, no web view, no external CLI dependency. It uses native direct-HTTPS clients for Claude, Codex, and Gemini; your token anxiety stays between you and your laptop.
 
 ### What you see
 
@@ -31,7 +31,6 @@ The dollar figures are honest *estimates* — tokens × list price, labeled as s
 ### Install
 
 ```sh
-brew install --cask codexbar          # the engine it rides on
 git clone https://github.com/aylee1024/need-more-tokens
 cd need-more-tokens && xcodegen generate && open NeedMoreTokens.xcodeproj
 ```
@@ -43,6 +42,6 @@ Needs macOS 26 (Tahoe) and Xcode 26. Build & run — it tucks itself into your m
 <div align="center">
 
 Lives quietly in your menu bar.<br>
-Companion to **[lord-claude](https://github.com/aylee1024/lord-claude)** · MIT · built on the lovely **[codexbar](https://github.com/steipete/CodexBar)** by [@steipete](https://github.com/steipete)
+Companion to **[lord-claude](https://github.com/aylee1024/lord-claude)** · MIT
 
 </div>

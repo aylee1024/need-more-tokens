@@ -2,8 +2,8 @@
 import PackageDescription
 
 // NeedMoreTokensKit holds all the non-UI logic shared by the app and the widget
-// extension: provider models, the codexbar engine adapter, the lifetime ledger,
-// the widget snapshot store, and formatting. Keeping it a plain SwiftPM library
+// extension: provider models, native provider clients, the widget snapshot store,
+// and formatting. Keeping it a plain SwiftPM library
 // (Foundation-only, no SwiftUI) lets the risky logic — JSON decoding and ledger
 // reconciliation — build and test with `swift test`, independent of the macOS 26
 // app/widget targets defined in project.yml.
@@ -26,7 +26,6 @@ let package = Package(
             name: "NeedMoreTokensKitTests",
             dependencies: ["NeedMoreTokensKit"],
             path: "Tests/NeedMoreTokensKitTests",
-            resources: [.copy("Fixtures")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
     ]

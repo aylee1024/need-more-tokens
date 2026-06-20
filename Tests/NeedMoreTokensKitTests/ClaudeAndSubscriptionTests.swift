@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import NeedMoreTokensKit
 
-@Suite("Subscriptions, billing anchor, snapshot decode-tolerance")
+@Suite("Subscriptions and snapshot decode-tolerance")
 struct SubscriptionsAndSnapshotTests {
 
     @Test func subscriptionDefaultsMatchKnownPlans() {
@@ -18,30 +18,6 @@ struct SubscriptionsAndSnapshotTests {
         #expect(Subscriptions.defaultMonthlyUSD(for: .gemini, planName: nil) == nil)
         #expect(Subscriptions.defaultMonthlyUSD(for: .claude, planName: nil) == nil)
         #expect(Subscriptions.defaultMonthlyUSD(for: .codex, planName: "") == nil)
-    }
-
-    @Test func billingAnchorBeforeTodayUsesThisMonth() {
-        var cal = Calendar(identifier: .gregorian)
-        cal.timeZone = TimeZone(identifier: "UTC")!
-        let june7 = cal.date(from: DateComponents(year: 2026, month: 6, day: 7))!
-        #expect(EngineMapper.firstOfMonthDayKey(for: june7, anchorDay: 1, calendar: cal) == "2026-06-01")
-    }
-
-    @Test func billingAnchorAfterTodayRollsBackAMonth() {
-        var cal = Calendar(identifier: .gregorian)
-        cal.timeZone = TimeZone(identifier: "UTC")!
-        let june7 = cal.date(from: DateComponents(year: 2026, month: 6, day: 7))!
-        // Anchor day 15 hasn't arrived yet on June 7 → cycle started May 15, not a
-        // future June 15 (which would sum zero current-cycle cost).
-        #expect(EngineMapper.firstOfMonthDayKey(for: june7, anchorDay: 15, calendar: cal) == "2026-05-15")
-    }
-
-    @Test func billingAnchorClampsInvalidDays() {
-        var cal = Calendar(identifier: .gregorian)
-        cal.timeZone = TimeZone(identifier: "UTC")!
-        let feb10 = cal.date(from: DateComponents(year: 2026, month: 2, day: 10))!
-        // Day 31 clamps to 28 (every month has it); on Feb 10, day 28 hasn't arrived → Jan 28.
-        #expect(EngineMapper.firstOfMonthDayKey(for: feb10, anchorDay: 31, calendar: cal) == "2026-01-28")
     }
 
     @Test func snapshotEntryDecodesToleratingMissingAddedFields() throws {

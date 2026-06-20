@@ -2,8 +2,8 @@ import Foundation
 import Testing
 @testable import NeedMoreTokensKit
 
-/// A minimal out-of-EngineAdapter conformer — the shape Phase 4's native clients
-/// and any mock will take. It implements ONLY the protocol requirement; the
+/// A minimal provider-source conformer — the shape native clients and any mock
+/// will take. It implements ONLY the protocol requirement; the
 /// convenience `fetch()` comes from the extension. If the extension ever re-declared
 /// the full-signature method with default args again, this would recurse forever
 /// instead of returning — so this test guards the seam against that regression.
