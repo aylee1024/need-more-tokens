@@ -316,7 +316,9 @@ struct GeminiUsageClientTests {
             .fetch(now: GeminiClientFixture.now)
 
         #expect(partial.usage == nil)
-        #expect(partial.usageError?.contains("refresh failed") == true)
+        // A failed refresh now surfaces the clean "expired — run agy" message, not an HTTP error.
+        #expect(partial.usageError?.contains("expired") == true)
+        #expect(partial.usageError?.contains("HTTP") == false)
         #expect(await http.recordedRequests().count == 1)
     }
 

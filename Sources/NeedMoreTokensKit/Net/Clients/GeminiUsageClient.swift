@@ -40,11 +40,9 @@ public struct GeminiUsageClient: Sendable {
                                    usageError: nil,
                                    cost: Self.unavailableCost())
         } catch let error as CredentialAccessError {
+            // Includes refresh failures, which resolveAccessToken maps to .expired so the
+            // card shows the clean "expired — run agy" message instead of an HTTP error.
             return Self.failure(error.userMessage)
-        } catch let error as GeminiRefreshError {
-            // The cached token was expired and the refresh-token exchange failed (revoked,
-            // network, or unexpected response) — point the user at the re-auth path.
-            return Self.failure("Gemini token refresh failed (\(error.description)) — re-auth in Antigravity or run agy")
         } catch let error as GeminiClientError {
             // Surface the real cause (e.g. the loadCodeAssist HTTP status) instead
             // of the opaque type name, so failures are diagnosable.
@@ -64,9 +62,12 @@ public struct GeminiUsageClient: Sendable {
         if let refresh = tokens.refreshToken {
             do {
                 return try await refresher.refreshedAccessToken(refreshToken: refresh)
-            } catch GeminiRefreshError.clientConfigMissing {
-                // No local OAuth client configured (~/.config/needmoretokens/gemini-oauth.json
-                // absent) → auto-refresh is opt-in, so fall back to today's "expired" state.
+            } catch is GeminiRefreshError {
+                // ANY refresh failure (no local OAuth client configured, invalid/401 creds,
+                // network, or malformed response) → surface the clean "expired — run agy"
+                // state, NOT an alarming "refresh failed (HTTP NNN)". Auto-refresh is opt-in:
+                // it needs ~/.config/needmoretokens/gemini-oauth.json holding agy's Antigravity
+                // OAuth client. When that's absent or wrong, behave like a plain expired token.
                 throw CredentialAccessError.expired(provider: .gemini)
             }
         }
