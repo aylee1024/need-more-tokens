@@ -89,6 +89,29 @@ public struct CredentialStore: Sendable {
         return GeminiCredentialAccess(accessToken: accessToken, tokenType: credential.token?.tokenType, scope: nil)
     }
 
+    /// Loads the Gemini Keychain credential WITHOUT throwing on expiry — it returns the
+    /// access token, the long-lived refresh token, and whether the access token is expired,
+    /// so a caller can refresh in-memory (see `GeminiTokenRefresher`). It still throws
+    /// `accessNotGranted` (no ACL grant), `missingCredential` (item absent), or
+    /// `invalidCredential` (undecodable blob) exactly as `loadGeminiAntigravityCredential`
+    /// does, so the un-granted state still surfaces. A control-character token VALUE is
+    /// treated as absent (nil), NOT thrown — a malformed cached access token then simply
+    /// triggers a refresh rather than erroring.
+    public func loadGeminiTokens(now: Date = Date(),
+                                 skew: TimeInterval = CredentialExpiry.defaultSkew) throws -> GeminiTokens {
+        let credential = try loadGeminiAntigravityCredential()
+        func sanitized(_ value: String?) -> String? {
+            guard let value, !value.isEmpty, Self.hasNoControlCharacters(value) else { return nil }
+            return value
+        }
+        return GeminiTokens(
+            accessToken: sanitized(credential.token?.accessToken),
+            refreshToken: sanitized(credential.token?.refreshToken),
+            tokenType: credential.token?.tokenType,
+            isAccessTokenExpired: credential.isAccessTokenKnownExpired(now: now, skew: skew)
+        )
+    }
+
     private func decode<T: Decodable>(_ type: T.Type, from url: URL) throws -> T {
         let data = try Data(contentsOf: url)
         return try JSONDecoder().decode(type, from: data)
@@ -368,6 +391,28 @@ public struct GeminiCredentialAccess: Sendable, Equatable {
         self.tokenType = tokenType
         self.scope = scope
     }
+}
+
+/// Gemini Keychain tokens for the refresh-on-expiry path: the cached access token (if
+/// present + well-formed), the long-lived refresh token, and whether the access token is
+/// expired. Holds live secrets — redacted in `description`.
+public struct GeminiTokens: Sendable, Equatable, CustomStringConvertible, CustomDebugStringConvertible {
+    public let accessToken: String?
+    public let refreshToken: String?
+    public let tokenType: String?
+    public let isAccessTokenExpired: Bool
+
+    public init(accessToken: String?, refreshToken: String?, tokenType: String?, isAccessTokenExpired: Bool) {
+        self.accessToken = accessToken
+        self.refreshToken = refreshToken
+        self.tokenType = tokenType
+        self.isAccessTokenExpired = isAccessTokenExpired
+    }
+
+    public var description: String {
+        "GeminiTokens(accessToken: <redacted>, refreshToken: <redacted>, tokenType: \(tokenType ?? "nil"), expired: \(isAccessTokenExpired))"
+    }
+    public var debugDescription: String { description }
 }
 
 public struct ClaudeCredentialAccess: Sendable, Equatable {

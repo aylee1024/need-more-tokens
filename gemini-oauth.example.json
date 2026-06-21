@@ -1,0 +1,5 @@
+{
+  "_comment": "Copy this file to ~/.config/needmoretokens/gemini-oauth.json and fill in an OAuth client to enable automatic Gemini token refresh. NMT reads it at runtime; it is NOT committed (no OAuth secret lives in this repo). If the file is absent, Gemini simply shows 'expired — run agy' once its ~1h token lapses. The intended client is the PUBLIC open-source gemini-cli installed-app client (google-gemini/gemini-cli, packages/core/src/code_assist/oauth2.ts) — agy issues the stored token under it, so its refresh token exchanges cleanly. Per RFC 8252 an installed-app secret is not confidential.",
+  "client_id": "YOUR_GEMINI_OAUTH_CLIENT_ID.apps.googleusercontent.com",
+  "client_secret": "YOUR_GEMINI_OAUTH_CLIENT_SECRET"
+}

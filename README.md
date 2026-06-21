@@ -37,6 +37,18 @@ cd need-more-tokens && xcodegen generate && open NeedMoreTokens.xcodeproj
 
 Needs macOS 26 (Tahoe) and Xcode 26. Build & run — it tucks itself into your menu bar.
 
+### Gemini auto-refresh (optional)
+
+Claude and Codex stay fresh on their own. Gemini's OAuth token lasts ~1 hour and is
+normally refreshed by `agy` (Antigravity) only when it runs, so between runs the Gemini
+card shows *"expired — run agy"*. To let NMT refresh it automatically, copy
+[`gemini-oauth.example.json`](gemini-oauth.example.json) to
+`~/.config/needmoretokens/gemini-oauth.json` and fill in an OAuth client (the public
+open-source [gemini-cli](https://github.com/google-gemini/gemini-cli) installed-app
+client works — `agy` issues the token under it). No secret is stored in this repo; the
+file lives only on your machine. Without it, nothing breaks — Gemini just shows "expired"
+once its token lapses.
+
 ---
 
 <div align="center">

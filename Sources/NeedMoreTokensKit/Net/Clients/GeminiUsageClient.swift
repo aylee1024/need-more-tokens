@@ -9,21 +9,24 @@ public struct GeminiUsageClient: Sendable {
 
     private let credentialStore: CredentialStore
     private let httpClient: any HTTPClient
+    private let refresher: GeminiTokenRefresher
     private let timeout: TimeInterval
 
     public init(credentialStore: CredentialStore = CredentialStore(),
                 httpClient: any HTTPClient = URLSessionHTTPClient(),
+                refresher: GeminiTokenRefresher? = nil,
                 timeout: TimeInterval = 30) {
         self.credentialStore = credentialStore
         self.httpClient = httpClient
+        self.refresher = refresher ?? GeminiTokenRefresher(httpClient: httpClient, timeout: timeout)
         self.timeout = timeout
     }
 
     public func fetch(now: Date = Date()) async -> ProviderPartial {
         do {
-            let credential = try credentialStore.loadGeminiAccess(now: now)
-            let project = try await loadProject(credential: credential)
-            let quotaResponse = try await httpClient.send(try Self.retrieveQuotaRequest(credential: credential, project: project), timeout: timeout)
+            let accessToken = try await resolveAccessToken(now: now)
+            let project = try await loadProject(accessToken: accessToken)
+            let quotaResponse = try await httpClient.send(try Self.retrieveQuotaRequest(accessToken: accessToken, project: project), timeout: timeout)
             guard quotaResponse.status == 200 else {
                 return Self.failure("Gemini quota request failed with HTTP \(quotaResponse.status)")
             }
@@ -38,6 +41,10 @@ public struct GeminiUsageClient: Sendable {
                                    cost: Self.unavailableCost())
         } catch let error as CredentialAccessError {
             return Self.failure(error.userMessage)
+        } catch let error as GeminiRefreshError {
+            // The cached token was expired and the refresh-token exchange failed (revoked,
+            // network, or unexpected response) — point the user at the re-auth path.
+            return Self.failure("Gemini token refresh failed (\(error.description)) — re-auth in Antigravity or run agy")
         } catch let error as GeminiClientError {
             // Surface the real cause (e.g. the loadCodeAssist HTTP status) instead
             // of the opaque type name, so failures are diagnosable.
@@ -47,8 +54,31 @@ public struct GeminiUsageClient: Sendable {
         }
     }
 
-    private func loadProject(credential: GeminiCredentialAccess) async throws -> String {
-        let response = try await httpClient.send(try Self.loadCodeAssistRequest(credential: credential), timeout: timeout)
+    /// A usable access token: the cached Keychain token while it's still valid, otherwise a
+    /// freshly minted one from the stored refresh token (in-memory; never written back).
+    private func resolveAccessToken(now: Date) async throws -> String {
+        let tokens = try credentialStore.loadGeminiTokens(now: now)
+        if let access = tokens.accessToken, !tokens.isAccessTokenExpired {
+            return access
+        }
+        if let refresh = tokens.refreshToken {
+            do {
+                return try await refresher.refreshedAccessToken(refreshToken: refresh)
+            } catch GeminiRefreshError.clientConfigMissing {
+                // No local OAuth client configured (~/.config/needmoretokens/gemini-oauth.json
+                // absent) → auto-refresh is opt-in, so fall back to today's "expired" state.
+                throw CredentialAccessError.expired(provider: .gemini)
+            }
+        }
+        // Expired with no refresh token, or no token at all → surface re-auth.
+        if tokens.accessToken != nil {
+            throw CredentialAccessError.expired(provider: .gemini)
+        }
+        throw CredentialAccessError.missingAccessToken(provider: .gemini)
+    }
+
+    private func loadProject(accessToken: String) async throws -> String {
+        let response = try await httpClient.send(try Self.loadCodeAssistRequest(accessToken: accessToken), timeout: timeout)
         guard response.status == 200 else {
             throw GeminiClientError.http("Gemini Code Assist project request failed with HTTP \(response.status)")
         }
@@ -59,10 +89,10 @@ public struct GeminiUsageClient: Sendable {
         return project
     }
 
-    private static func loadCodeAssistRequest(credential: GeminiCredentialAccess) throws -> URLRequest {
+    private static func loadCodeAssistRequest(accessToken: String) throws -> URLRequest {
         var request = URLRequest(url: loadCodeAssistURL)
         request.httpMethod = "POST"
-        request.setValue("Bearer \(credential.accessToken)", forHTTPHeaderField: "Authorization")
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(antigravityUserAgent, forHTTPHeaderField: "User-Agent")
         request.httpBody = try JSONSerialization.data(withJSONObject: [
@@ -73,10 +103,10 @@ public struct GeminiUsageClient: Sendable {
         return request
     }
 
-    private static func retrieveQuotaRequest(credential: GeminiCredentialAccess, project: String) throws -> URLRequest {
+    private static func retrieveQuotaRequest(accessToken: String, project: String) throws -> URLRequest {
         var request = URLRequest(url: retrieveQuotaURL)
         request.httpMethod = "POST"
-        request.setValue("Bearer \(credential.accessToken)", forHTTPHeaderField: "Authorization")
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(antigravityUserAgent, forHTTPHeaderField: "User-Agent")
         request.httpBody = try JSONSerialization.data(withJSONObject: ["project": project])
