@@ -63,9 +63,14 @@ public struct URLSessionHTTPClient: HTTPClient {
 
 /// Strips sensitive headers when a redirect changes origin (scheme/host/port) and
 /// refuses any non-HTTPS redirect — prevents a server-side or MITM 3xx from carrying
-/// the bearer token to another host. Same-origin redirects keep their headers.
+/// the bearer token to another host. Same-origin redirects keep their headers. A
+/// cross-origin redirect of a body-bearing request (POST/PUT/PATCH) is refused outright,
+/// because header-stripping cannot protect a request BODY — and a 307/308 redirect
+/// preserves method+body, which would otherwise forward secrets in the body (e.g. an
+/// OAuth refresh token + client secret) to another origin.
 final class RedirectGuard: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
     private static let sensitiveHeaders = ["Authorization", "ChatGPT-Account-Id", "anthropic-beta"]
+    private static let bodylessMethods: Set<String> = ["GET", "HEAD"]
     func urlSession(_ session: URLSession, task: URLSessionTask,
                     willPerformHTTPRedirection response: HTTPURLResponse,
                     newRequest request: URLRequest,
@@ -77,6 +82,10 @@ final class RedirectGuard: NSObject, URLSessionTaskDelegate, @unchecked Sendable
             return nil
         }
         if sameOrigin(originalURL, newURL) { return request }
+        // Cross-origin: a body could carry secrets that header-stripping can't remove, so
+        // refuse the redirect entirely for any method that may carry one.
+        let method = (request.httpMethod ?? "GET").uppercased()
+        guard Self.bodylessMethods.contains(method) else { return nil }
         var stripped = request
         for header in Self.sensitiveHeaders { stripped.setValue(nil, forHTTPHeaderField: header) }
         return stripped

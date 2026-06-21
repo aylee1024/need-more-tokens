@@ -40,6 +40,28 @@ struct RedirectGuardTests {
         #expect(rewritten == nil)
     }
 
+    @Test func crossOriginRedirectOfBodyBearingRequestIsRefused() {
+        // A POST's secret lives in the body, which header-stripping can't remove, and a
+        // 307/308 redirect preserves method+body — so a cross-origin POST redirect must be
+        // refused outright (guards the Gemini OAuth refresh, whose body holds the token).
+        let originalURL = URL(string: "https://oauth2.googleapis.com/token")!
+        var post = redirectRequest(to: "https://attacker.example/capture")
+        post.httpMethod = "POST"
+        post.httpBody = Data("refresh_token=secret&client_secret=secret".utf8)
+
+        #expect(RedirectGuard.rewrite(originalURL: originalURL, newRequest: post) == nil)
+    }
+
+    @Test func sameOriginRedirectOfBodyBearingRequestIsAllowed() throws {
+        let originalURL = URL(string: "https://oauth2.googleapis.com/token")!
+        var post = redirectRequest(to: "https://oauth2.googleapis.com/token-next")
+        post.httpMethod = "POST"
+        post.httpBody = Data("refresh_token=secret".utf8)
+
+        let rewritten = try #require(RedirectGuard.rewrite(originalURL: originalURL, newRequest: post))
+        #expect(rewritten.value(forHTTPHeaderField: "Authorization") == "Bearer token")
+    }
+
     private func redirectRequest(to url: String) -> URLRequest {
         var request = URLRequest(url: URL(string: url)!)
         request.setValue("Bearer token", forHTTPHeaderField: "Authorization")
