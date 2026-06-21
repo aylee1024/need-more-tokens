@@ -4,7 +4,7 @@
 
 ### *Because you always do.* 🪫
 
-<img src="assets/gauge.svg" alt="Need More Tokens — a menu-bar gauge for Claude, Codex and Gemini" width="440">
+<img src="assets/screenshot.png" alt="Need More Tokens — live menu-bar gauge for Claude, Codex and Gemini" width="300">
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-2da44e.svg)](LICENSE)
 &nbsp;![macOS 26 Tahoe](https://img.shields.io/badge/macOS-26_Tahoe-000000?logo=apple&logoColor=white)
