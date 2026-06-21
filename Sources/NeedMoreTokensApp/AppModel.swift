@@ -30,6 +30,14 @@ final class AppModel {
 
     private var dataSource: ProviderDataSource
     private var loop: Task<Void, Never>?
+    /// Held for the lifetime of the refresh loop to opt this background menu-bar agent OUT
+    /// of macOS App Nap. Without it, the OS suspends the inactive LSUIElement app shortly
+    /// after launch (no visible window), freezing the refresh Task/timer so the cards go
+    /// stale until the user opens the popover. `.userInitiatedAllowingIdleSystemSleep`
+    /// prevents App Nap while the Mac is awake but still lets it sleep normally (no refresh
+    /// is needed while asleep, and the activity resumes on wake). Verified on macOS 26:
+    /// background refresh fires reliably with this held, not without it.
+    private var refreshActivity: NSObjectProtocol?
     /// The last successful reading, kept so a price-override change can re-price the cards
     /// instantly without another provider fetch.
     private var lastFetch: ProviderFetch?
@@ -55,6 +63,13 @@ final class AppModel {
     /// Begins the periodic refresh loop (idempotent).
     func start() {
         guard loop == nil else { return }
+        // Opt out of App Nap so the background timer keeps firing (see refreshActivity).
+        if refreshActivity == nil {
+            refreshActivity = ProcessInfo.processInfo.beginActivity(
+                options: .userInitiatedAllowingIdleSystemSleep,
+                reason: "Periodic provider usage refresh"
+            )
+        }
         loop = Task { [weak self] in
             while !Task.isCancelled {
                 guard let self else { break }
@@ -67,6 +82,10 @@ final class AppModel {
     func stop() {
         loop?.cancel()
         loop = nil
+        if let refreshActivity {
+            ProcessInfo.processInfo.endActivity(refreshActivity)
+            self.refreshActivity = nil
+        }
     }
 
     /// Set when refresh() is called while one is already running, so the in-flight
