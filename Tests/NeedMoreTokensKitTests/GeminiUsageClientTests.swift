@@ -312,7 +312,8 @@ struct GeminiUsageClientTests {
             .json(#"{"error":"invalid_grant"}"#, status: 400),  // refresh rejected
         ])
 
-        let partial = await GeminiUsageClient(credentialStore: store, httpClient: http, refresher: GeminiClientFixture.refresher(http))
+        let partial = await GeminiUsageClient(credentialStore: store, httpClient: http, refresher: GeminiClientFixture.refresher(http),
+                                              refreshMaxAttempts: 1, refreshRetryBaseDelay: 0)
             .fetch(now: GeminiClientFixture.now)
 
         #expect(partial.usage == nil)
@@ -320,6 +321,64 @@ struct GeminiUsageClientTests {
         #expect(partial.usageError?.contains("expired") == true)
         #expect(partial.usageError?.contains("HTTP") == false)
         #expect(await http.recordedRequests().count == 1)
+    }
+
+    @Test func transientRefreshFailureIsRetriedThenSucceeds() async throws {
+        let (store, dir) = try GeminiClientFixture.store(geminiJSON: GeminiClientFixture.expiredCredential(refreshToken: true))
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let http = StubHTTPClient(responses: [
+            .json(#"{"error":"backend"}"#, status: 503),     // refresh attempt 1: transient
+            .json(GeminiClientFixture.refreshResponse),       // refresh attempt 2: succeeds
+            .json(GeminiClientFixture.loadProject),
+            .json(GeminiClientFixture.quota),
+        ])
+
+        let partial = await GeminiUsageClient(credentialStore: store, httpClient: http, refresher: GeminiClientFixture.refresher(http),
+                                              refreshMaxAttempts: 3, refreshRetryBaseDelay: 0)
+            .fetch(now: GeminiClientFixture.now)
+
+        #expect(partial.usageError == nil)
+        #expect(partial.usage != nil)
+        let requests = await http.recordedRequests()
+        #expect(requests.count == 4)  // 503 refresh, 200 refresh, loadProject, quota
+        #expect(requests[0].url?.absoluteString == "https://oauth2.googleapis.com/token")
+        #expect(requests[1].url?.absoluteString == "https://oauth2.googleapis.com/token")
+        #expect(requests[2].headers["Authorization"] == "Bearer refreshed-token")
+        #expect(requests[3].headers["Authorization"] == "Bearer refreshed-token")
+    }
+
+    @Test func persistentRefreshFailureSurfacesExpiredAfterRetries() async throws {
+        let (store, dir) = try GeminiClientFixture.store(geminiJSON: GeminiClientFixture.expiredCredential(refreshToken: true))
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let http = StubHTTPClient(responses: [
+            .json(#"{"error":"backend"}"#, status: 503),
+            .json(#"{"error":"backend"}"#, status: 503),
+            .json(#"{"error":"backend"}"#, status: 503),
+        ])
+
+        let partial = await GeminiUsageClient(credentialStore: store, httpClient: http, refresher: GeminiClientFixture.refresher(http),
+                                              refreshMaxAttempts: 3, refreshRetryBaseDelay: 0)
+            .fetch(now: GeminiClientFixture.now)
+
+        #expect(partial.usage == nil)
+        #expect(partial.usageError?.contains("expired") == true)
+        #expect(partial.usageError?.contains("HTTP") == false)
+        #expect(await http.recordedRequests().count == 3)  // all 3 attempts made, then expired
+    }
+
+    @Test func missingConfigDoesNotRetry() async throws {
+        let (store, dir) = try GeminiClientFixture.store(geminiJSON: GeminiClientFixture.expiredCredential(refreshToken: true))
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let http = StubHTTPClient(responses: [])
+        let refresher = GeminiTokenRefresher(httpClient: http, clientConfig: nil)  // no local OAuth client
+
+        let partial = await GeminiUsageClient(credentialStore: store, httpClient: http, refresher: refresher,
+                                              refreshMaxAttempts: 3, refreshRetryBaseDelay: 0)
+            .fetch(now: GeminiClientFixture.now)
+
+        #expect(partial.usage == nil)
+        #expect(partial.usageError?.contains("expired") == true)
+        #expect(await http.recordedRequests().isEmpty)  // clientConfigMissing → no HTTP, no retry
     }
 
     @Test func missingCredentialBecomesUsageErrorWithoutHTTP() async throws {
@@ -333,5 +392,44 @@ struct GeminiUsageClientTests {
         #expect(partial.usage == nil)
         #expect(partial.usageError?.contains("access token missing") == true)
         #expect(await http.recordedRequests().isEmpty)
+    }
+
+    // LIVE integration (gated; NOT run in CI): proves the running-app refresh path end-to-end.
+    // Reads the REAL Antigravity Keychain credential, forces the cached token to look expired,
+    // then exchanges the REAL refresh token via the REAL local OAuth config against Google and
+    // hits the live Code Assist quota API. Run with: NMT_LIVE=1 swift test --filter LIVE_refresh
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["NMT_LIVE"] != nil))
+    func LIVE_refreshesRealExpiredTokenAndReadsQuota() async throws {
+        let security = Process()
+        security.executableURL = URL(fileURLWithPath: "/usr/bin/security")
+        security.arguments = ["find-generic-password", "-s", "gemini", "-a", "antigravity", "-w"]
+        let pipe = Pipe()
+        security.standardOutput = pipe
+        try security.run()
+        security.waitUntilExit()
+        let out = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let prefix = "go-keyring-base64:"
+        let credentialJSON: String
+        if out.hasPrefix(prefix), let data = Data(base64Encoded: String(out.dropFirst(prefix.count))) {
+            credentialJSON = String(decoding: data, as: UTF8.self)
+        } else {
+            credentialJSON = out
+        }
+
+        let (store, dir) = try GeminiClientFixture.store(geminiJSON: credentialJSON)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        // Real OAuth config (~/.config/needmoretokens/gemini-oauth.json) + real network.
+        let client = GeminiUsageClient(credentialStore: store,
+                                       httpClient: URLSessionHTTPClient(),
+                                       refresher: GeminiTokenRefresher())
+        // now = +2h forces resolveAccessToken down the expired → refresh branch.
+        let partial = await client.fetch(now: Date(timeIntervalSinceNow: 7200))
+
+        print("LIVE usageError:", partial.usageError ?? "nil")
+        print("LIVE windows:", partial.usage?.windows.map { "\($0.label)=\($0.usedPercent)%" } ?? [])
+        #expect(partial.usageError == nil)
+        #expect(partial.usage != nil)
     }
 }
