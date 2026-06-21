@@ -3,10 +3,11 @@ import Foundation
 /// The OAuth client (id + secret) used to refresh a Gemini access token. NMT deliberately
 /// does NOT ship these values: they are read at runtime from a local, gitignored file
 /// (`~/.config/needmoretokens/gemini-oauth.json`) so no OAuth secret lives in the public
-/// repo. Use the PUBLIC open-source gemini-cli installed-app client (Google publishes its
-/// id+secret openly; per RFC 8252 §8.5 an installed-app secret is not confidential) — the
-/// same client `agy` issues the stored token under, so the refresh token exchanges cleanly.
-/// If the file is absent, Gemini simply falls back to "expired — run agy" (no auto-refresh).
+/// repo. Must be **agy's (Antigravity's) own OAuth client** — the client the Keychain token
+/// (`gemini/antigravity`) was issued under. (gemini-cli's public client does NOT work: its
+/// tokens are rejected with HTTP 403 by the Code Assist quota API — verified on-machine — so
+/// gemini-cli is unused here.) Obtain agy's client id+secret by capturing agy's refresh
+/// request. If the file is absent or wrong, Gemini falls back to "expired — run agy".
 public struct GeminiOAuthClientConfig: Sendable, Equatable, CustomStringConvertible, CustomDebugStringConvertible {
     public let clientID: String
     public let clientSecret: String

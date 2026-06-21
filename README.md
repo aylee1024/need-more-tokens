@@ -43,11 +43,12 @@ Claude and Codex stay fresh on their own. Gemini's OAuth token lasts ~1 hour and
 normally refreshed by `agy` (Antigravity) only when it runs, so between runs the Gemini
 card shows *"expired — run agy"*. To let NMT refresh it automatically, copy
 [`gemini-oauth.example.json`](gemini-oauth.example.json) to
-`~/.config/needmoretokens/gemini-oauth.json` and fill in an OAuth client (the public
-open-source [gemini-cli](https://github.com/google-gemini/gemini-cli) installed-app
-client works — `agy` issues the token under it). No secret is stored in this repo; the
-file lives only on your machine. Without it, nothing breaks — Gemini just shows "expired"
-once its token lapses.
+`~/.config/needmoretokens/gemini-oauth.json` and fill in **agy's own (Antigravity) OAuth
+client** — the client the Keychain token is issued under (obtain its id+secret by capturing
+agy's refresh request to `oauth2.googleapis.com/token`). No secret is stored in this repo;
+the file lives only on your machine. Without it, nothing breaks — Gemini just shows
+"expired" once its token lapses. (gemini-cli's public client does **not** work: its tokens
+are rejected by the quota API.)
 
 ---
 
