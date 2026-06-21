@@ -93,9 +93,11 @@ public struct ClaudeUsageClient: Sendable {
               raw.isEnabled == true,
               let used = raw.usedCredits,
               let limit = raw.monthlyLimit else { return nil }
+        // Anthropic's `extra_usage` amounts are in CENTS (verified: a real $1,000 cap
+        // arrives as monthly_limit=100000). MonetaryCap is in dollars, so convert here.
         return MonetaryCap(
-            used: EngineMapper.sanitizeMoney(used),
-            limit: EngineMapper.sanitizeMoney(limit),
+            used: EngineMapper.sanitizeMoney(used / 100),
+            limit: EngineMapper.sanitizeMoney(limit / 100),
             currencyCode: raw.currency ?? "USD",
             periodLabel: "Monthly cap"
         )

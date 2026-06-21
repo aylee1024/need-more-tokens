@@ -46,9 +46,9 @@ private enum ClaudeClientFixture {
       "seven_day_opus": null,
       "extra_usage": {
         "is_enabled": true,
-        "monthly_limit": 40,
-        "used_credits": 3.5,
-        "utilization": 8.75,
+        "monthly_limit": 100000,
+        "used_credits": 5318,
+        "utilization": 5.318,
         "currency": "USD",
         "disabled_reason": null
       },
@@ -76,8 +76,9 @@ struct ClaudeUsageClientTests {
         #expect(usage.windows.map(\.usedPercent) == [13, 40, 1])
         #expect(usage.planName == "Claude Max")
         let cap = try #require(usage.exactMonthlyCap)
-        #expect(cap.used == 3.5)
-        #expect(cap.limit == 40)
+        // Anthropic returns extra_usage in CENTS → MonetaryCap is dollars (÷100).
+        #expect(abs(cap.used - 53.18) < 0.001)
+        #expect(cap.limit == 1000.0)
         #expect(cap.currencyCode == "USD")
         #expect(cap.periodLabel == "Monthly cap")
         #expect(partial.cost.isAvailable == false)
