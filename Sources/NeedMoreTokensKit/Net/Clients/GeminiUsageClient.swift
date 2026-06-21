@@ -11,15 +11,21 @@ public struct GeminiUsageClient: Sendable {
     private let httpClient: any HTTPClient
     private let refresher: GeminiTokenRefresher
     private let timeout: TimeInterval
+    private let refreshMaxAttempts: Int
+    private let refreshRetryBaseDelay: TimeInterval
 
     public init(credentialStore: CredentialStore = CredentialStore(),
                 httpClient: any HTTPClient = URLSessionHTTPClient(),
                 refresher: GeminiTokenRefresher? = nil,
-                timeout: TimeInterval = 30) {
+                timeout: TimeInterval = 30,
+                refreshMaxAttempts: Int = 3,
+                refreshRetryBaseDelay: TimeInterval = 0.5) {
         self.credentialStore = credentialStore
         self.httpClient = httpClient
         self.refresher = refresher ?? GeminiTokenRefresher(httpClient: httpClient, timeout: timeout)
         self.timeout = timeout
+        self.refreshMaxAttempts = max(1, refreshMaxAttempts)
+        self.refreshRetryBaseDelay = refreshRetryBaseDelay
     }
 
     public func fetch(now: Date = Date()) async -> ProviderPartial {
@@ -59,23 +65,34 @@ public struct GeminiUsageClient: Sendable {
         if let access = tokens.accessToken, !tokens.isAccessTokenExpired {
             return access
         }
-        if let refresh = tokens.refreshToken {
-            do {
-                return try await refresher.refreshedAccessToken(refreshToken: refresh)
-            } catch is GeminiRefreshError {
-                // ANY refresh failure (no local OAuth client configured, invalid/401 creds,
-                // network, or malformed response) → surface the clean "expired — run agy"
-                // state, NOT an alarming "refresh failed (HTTP NNN)". Auto-refresh is opt-in:
-                // it needs ~/.config/needmoretokens/gemini-oauth.json holding agy's Antigravity
-                // OAuth client. When that's absent or wrong, behave like a plain expired token.
+        guard tokens.refreshToken != nil else {
+            // Expired with no refresh token, or no token at all → surface re-auth.
+            if tokens.accessToken != nil {
                 throw CredentialAccessError.expired(provider: .gemini)
             }
+            throw CredentialAccessError.missingAccessToken(provider: .gemini)
         }
-        // Expired with no refresh token, or no token at all → surface re-auth.
-        if tokens.accessToken != nil {
-            throw CredentialAccessError.expired(provider: .gemini)
+
+        // The cached token is expired → mint a fresh one from the refresh token. Retry transient
+        // failures (Google 5xx/429, or reading the Keychain in the brief window while agy is
+        // rotating the refresh token) so a momentary blip doesn't flip the card to "expired" for
+        // a whole refresh cycle. Re-read the Keychain each attempt to pick up a just-rotated
+        // token. A definitive failure (no local OAuth config, revoked grant) still surfaces the
+        // clean "expired — run agy" after the attempts are exhausted — never a raw "HTTP NNN".
+        for attempt in 0..<refreshMaxAttempts {
+            if attempt > 0, refreshRetryBaseDelay > 0 {
+                try? await Task.sleep(nanoseconds: UInt64(Double(attempt) * refreshRetryBaseDelay * 1_000_000_000))
+            }
+            guard let refresh = ((try? credentialStore.loadGeminiTokens(now: now)) ?? tokens).refreshToken else { break }
+            do {
+                return try await refresher.refreshedAccessToken(refreshToken: refresh)
+            } catch GeminiRefreshError.clientConfigMissing {
+                break  // no local OAuth client → auto-refresh is opt-in; don't retry.
+            } catch is GeminiRefreshError {
+                continue  // transient (5xx/429/stale token/malformed) → retry until exhausted.
+            }
         }
-        throw CredentialAccessError.missingAccessToken(provider: .gemini)
+        throw CredentialAccessError.expired(provider: .gemini)
     }
 
     private func loadProject(accessToken: String) async throws -> String {
