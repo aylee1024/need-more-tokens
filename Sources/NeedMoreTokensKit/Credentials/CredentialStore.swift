@@ -108,7 +108,8 @@ public struct CredentialStore: Sendable {
             accessToken: sanitized(credential.token?.accessToken),
             refreshToken: sanitized(credential.token?.refreshToken),
             tokenType: credential.token?.tokenType,
-            isAccessTokenExpired: credential.isAccessTokenKnownExpired(now: now, skew: skew)
+            isAccessTokenExpired: credential.isAccessTokenKnownExpired(now: now, skew: skew),
+            expiresAt: CredentialExpiry.parseISO8601Date(credential.token?.expiry)
         )
     }
 
@@ -401,12 +402,17 @@ public struct GeminiTokens: Sendable, Equatable, CustomStringConvertible, Custom
     public let refreshToken: String?
     public let tokenType: String?
     public let isAccessTokenExpired: Bool
+    /// When the access token expires, parsed from the credential, so a caller that caches the
+    /// access token can do so with its real expiry (and serve it from cache until then).
+    public let expiresAt: Date?
 
-    public init(accessToken: String?, refreshToken: String?, tokenType: String?, isAccessTokenExpired: Bool) {
+    public init(accessToken: String?, refreshToken: String?, tokenType: String?,
+                isAccessTokenExpired: Bool, expiresAt: Date? = nil) {
         self.accessToken = accessToken
         self.refreshToken = refreshToken
         self.tokenType = tokenType
         self.isAccessTokenExpired = isAccessTokenExpired
+        self.expiresAt = expiresAt
     }
 
     public var description: String {
@@ -513,7 +519,7 @@ public enum CredentialExpiry {
         return seconds <= now.addingTimeInterval(skew).timeIntervalSince1970
     }
 
-    private static func parseISO8601Date(_ string: String?) -> Date? {
+    static func parseISO8601Date(_ string: String?) -> Date? {
         guard let string, !string.isEmpty else { return nil }
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime]
