@@ -19,6 +19,24 @@ struct SettingsPaneView: View {
 
                 Divider().opacity(0.25)
 
+                Text("PROVIDERS")
+                    .font(Theme.font(.caption2, scale: uiScale, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+
+                ForEach(Provider.allCases, id: \.self) { provider in
+                    ProviderToggleRow(
+                        provider: provider,
+                        onChange: { Task { await model.refresh() } }
+                    )
+                }
+
+                Text("Turn a provider's usage tracking on or off. A disabled provider isn't fetched and shows no card.")
+                    .font(Theme.font(.caption2, scale: uiScale))
+                    .foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Divider().opacity(0.25)
+
                 Text("MONTHLY SUBSCRIPTION")
                     .font(Theme.font(.caption2, scale: uiScale, weight: .semibold))
                     .foregroundStyle(.tertiary)
@@ -75,6 +93,31 @@ private struct EnableNativeAccessRow: View {
     }
 
     private func scaled(_ base: CGFloat) -> CGFloat { UISize.metric(base, scale: uiScale) }
+}
+
+/// One provider's usage-tracking on/off switch, bound to its persisted toggle (default ON).
+/// Flipping it triggers a refresh so a re-enabled provider repopulates and a disabled one's
+/// card disappears on the spot.
+private struct ProviderToggleRow: View {
+    let provider: Provider
+    let onChange: () -> Void
+    @AppStorage private var enabled: Bool
+    @Environment(\.uiScale) private var uiScale
+
+    init(provider: Provider, onChange: @escaping () -> Void) {
+        self.provider = provider
+        self.onChange = onChange
+        _enabled = AppStorage(wrappedValue: true, ProviderToggles.key(for: provider))
+    }
+
+    var body: some View {
+        Toggle(isOn: Binding(get: { enabled }, set: { enabled = $0; onChange() })) {
+            Text(provider.displayName)
+                .font(Theme.font(.callout, scale: uiScale, weight: .semibold))
+        }
+        .toggleStyle(.switch)
+        .controlSize(.small)
+    }
 }
 
 /// One provider's price control, bound to its persisted override. An empty/zero override

@@ -23,9 +23,18 @@ struct ProviderCardView: View {
             header
 
             if entry.windows.isEmpty && entry.extraWindows.isEmpty {
-                Text(entry.state == .error ? (entry.errorMessage ?? "Couldn't read usage") : "No usage windows reported")
-                    .font(Theme.font(.caption, scale: uiScale))
-                    .foregroundStyle(.secondary)
+                // Grok has no pollable usage windows by design — its plan line carries the
+                // tier + renewal, so the "no windows" notice would be wrong noise. Still show
+                // a real error (e.g. expired token) for any provider.
+                if entry.state == .error {
+                    Text(entry.errorMessage ?? "Couldn't read usage")
+                        .font(Theme.font(.caption, scale: uiScale))
+                        .foregroundStyle(.secondary)
+                } else if entry.provider != .grok {
+                    Text("No usage windows reported")
+                        .font(Theme.font(.caption, scale: uiScale))
+                        .foregroundStyle(.secondary)
+                }
             } else {
                 ForEach(Array(entry.windows.enumerated()), id: \.offset) { _, window in
                     UsageBarView(window: window)

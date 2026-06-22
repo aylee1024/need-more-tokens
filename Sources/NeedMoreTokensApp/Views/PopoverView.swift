@@ -120,10 +120,17 @@ struct PopoverView: View {
                             .font(Theme.font(.callout, scale: uiScale))
                             .foregroundStyle(.secondary)
                     }
-                } else {
+                } else if model.engineState == .loading {
                     ProgressView("Reading usage…")
                         .controlSize(Theme.progressSize(for: uiScale))
                         .font(Theme.font(.callout, scale: uiScale))
+                } else {
+                    // A successful fetch with no entries means every provider is toggled off —
+                    // show that, not an endless "Reading usage…" spinner.
+                    Text("No providers enabled — turn one on in Settings.")
+                        .font(Theme.font(.callout, scale: uiScale))
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
                 }
                 Spacer()
             }

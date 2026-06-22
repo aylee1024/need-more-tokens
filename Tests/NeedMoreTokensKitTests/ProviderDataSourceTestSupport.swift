@@ -106,6 +106,7 @@ private func usedPercent(for provider: Provider) -> Double {
     case .claude: 10
     case .codex: 20
     case .gemini: 30
+    case .grok: 40
     }
 }
 
@@ -114,5 +115,6 @@ private func costAmount(for provider: Provider, source _: String) -> Double {
     case .claude: 1
     case .codex: 2
     case .gemini: 3
+    case .grok: 4
     }
 }

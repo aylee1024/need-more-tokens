@@ -27,12 +27,13 @@ struct NativeProviderDataSourceTests {
             .claude: successfulPartial(.claude, source: "native"),
             .codex: failingPartial(.codex, message: "codex native failed"),
             .gemini: successfulPartial(.gemini, source: "native"),
+            .grok: successfulPartial(.grok, source: "native"),
         ])
         let source = nativeSource(recorder)
 
         let fetch = await source.fetch(providers: Provider.allCases, cycleAnchorDay: 1, now: dataSourceTestNow)
 
-        #expect(Set(fetch.usages.keys) == Set([Provider.claude, .gemini]))
+        #expect(Set(fetch.usages.keys) == Set([Provider.claude, .gemini, .grok]))
         #expect(fetch.usageErrors == [.codex: "codex native failed"])
         #expect(Set(fetch.costs.keys) == Set(Provider.allCases))
         #expect(fetch.generatedAt == dataSourceTestNow)
@@ -43,6 +44,7 @@ struct NativeProviderDataSourceTests {
             .claude: successfulPartial(.claude, source: "native"),
             .codex: successfulPartial(.codex, source: "native"),
             .gemini: successfulPartial(.gemini, source: "native"),
+            .grok: successfulPartial(.grok, source: "native"),
         ])
         let source = nativeSource(recorder)
 
@@ -73,7 +75,8 @@ struct NativeProviderDataSourceTests {
         NativeProviderDataSource(
             claudeFetch: { now in await recorder.fetch(.claude, now: now) },
             codexFetch: { now in await recorder.fetch(.codex, now: now) },
-            geminiFetch: { now in await recorder.fetch(.gemini, now: now) }
+            geminiFetch: { now in await recorder.fetch(.gemini, now: now) },
+            grokFetch: { now in await recorder.fetch(.grok, now: now) }
         )
     }
 }
