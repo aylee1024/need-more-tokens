@@ -27,6 +27,10 @@ struct Phase5HardeningTests {
                 ProviderPartial(provider: .gemini, usage: liveUsage(.gemini), usageError: nil,
                                 cost: .unavailable(.gemini, reason: "x"))
             },
+            grokFetch: { _ in
+                ProviderPartial(provider: .grok, usage: liveUsage(.grok), usageError: nil,
+                                cost: .unavailable(.grok, reason: "x"))
+            },
             timeout: 0.05
         )
         let fetch = await source.fetch(providers: Provider.allCases, cycleAnchorDay: 1, now: Date())

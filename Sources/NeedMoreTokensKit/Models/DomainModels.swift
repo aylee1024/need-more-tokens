@@ -6,12 +6,14 @@ public enum Provider: String, CaseIterable, Codable, Sendable, Hashable {
     case claude
     case codex
     case gemini
+    case grok
 
     public var displayName: String {
         switch self {
         case .claude: "Claude"
         case .codex: "Codex"
         case .gemini: "Gemini"
+        case .grok: "Grok"
         }
     }
 
@@ -22,6 +24,7 @@ public enum Provider: String, CaseIterable, Codable, Sendable, Hashable {
         case "claude", "claude-code", "anthropic": .claude
         case "codex", "openai": .codex
         case "gemini", "google": .gemini
+        case "grok", "xai", "x.ai": .grok
         default: nil
         }
     }

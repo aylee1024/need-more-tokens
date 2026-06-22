@@ -152,9 +152,17 @@ final class AppModel {
         log.info("refresh: starting fetch")
         do {
             let dataSource = dataSource
-            let fetch = try await dataSource.fetch()
+            // Only fetch + show providers the user has left enabled (default ON). A disabled
+            // provider does no HTTP and no Keychain read, and gets no card.
+            let fetchProviders = ProviderToggles.loadEnabled()
+            let fetch = try await dataSource.fetch(providers: fetchProviders, cycleAnchorDay: 1, now: Date())
             lastFetch = fetch
-            let snap = WidgetSnapshot.build(from: fetch, enabledProviders: Provider.allCases,
+            // Re-read toggles AFTER the await: if the user toggled a provider OFF mid-fetch, drop
+            // it from this snapshot rather than briefly resurrecting its card (the queued
+            // re-refresh fetches the new set). Show only providers fetched this cycle AND still on.
+            let stillEnabled = ProviderToggles.loadEnabled()
+            let visible = fetchProviders.filter { stillEnabled.contains($0) }
+            let snap = WidgetSnapshot.build(from: fetch, enabledProviders: visible,
                                             subscriptionOverrides: PriceOverrides.load())
             snapshot = snap
             engineState = .ok
@@ -179,7 +187,11 @@ final class AppModel {
     /// until the first successful fetch.
     func applyPriceOverrides() {
         guard let lastFetch else { return }
-        let snap = WidgetSnapshot.build(from: lastFetch, enabledProviders: Provider.allCases,
+        // Re-price only providers that are enabled AND present in the last fetch — a provider
+        // toggled on since then has no data yet (the next refresh fetches it).
+        let fetched = Set(lastFetch.costs.keys)
+        let visible = ProviderToggles.loadEnabled().filter { fetched.contains($0) }
+        let snap = WidgetSnapshot.build(from: lastFetch, enabledProviders: visible,
                                         subscriptionOverrides: PriceOverrides.load(),
                                         engineState: engineState)
         snapshot = snap

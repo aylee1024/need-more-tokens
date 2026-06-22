@@ -9,11 +9,13 @@ public struct NativeProviderDataSource: ProviderDataSource {
     public init(claudeClient: ClaudeUsageClient = ClaudeUsageClient(),
                 codexClient: OpenAICodexClient = OpenAICodexClient(),
                 geminiClient: GeminiUsageClient = GeminiUsageClient(),
+                grokClient: GrokUsageClient = GrokUsageClient(),
                 timeout: TimeInterval = 30) {
         self.init(
             claudeFetch: { now in await claudeClient.fetch(now: now) },
             codexFetch: { now in await codexClient.fetch(now: now) },
             geminiFetch: { now in await geminiClient.fetch(now: now) },
+            grokFetch: { now in await grokClient.fetch(now: now) },
             timeout: timeout
         )
     }
@@ -21,11 +23,13 @@ public struct NativeProviderDataSource: ProviderDataSource {
     public init(claudeFetch: @escaping ClientFetch,
                 codexFetch: @escaping ClientFetch,
                 geminiFetch: @escaping ClientFetch,
+                grokFetch: @escaping ClientFetch,
                 timeout: TimeInterval = 30) {
         self.fetchers = [
             .claude: claudeFetch,
             .codex: codexFetch,
             .gemini: geminiFetch,
+            .grok: grokFetch,
         ]
         self.timeout = timeout
     }

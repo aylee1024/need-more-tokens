@@ -25,6 +25,12 @@ public enum Subscriptions {
             if plan.contains("ultra") { return 99.99 }
             if plan.contains("paid") || plan.contains("pro") { return 19.99 }
             return nil
+        case .grok:
+            // xAI SuperGrok ≈ $30/mo; SuperGrok Heavy ≈ $300/mo (estimates — editable).
+            // Only price a KNOWN paid tier; a failed read must not show a paid line.
+            if plan.contains("heavy") { return 300 }
+            if plan.contains("pro") || plan.contains("grok") { return 30 }
+            return nil
         }
     }
 }

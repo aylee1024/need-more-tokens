@@ -17,6 +17,8 @@ public enum EngineMapper {
             return RateWindow.Period(windowMinutes: windowMinutes).shortLabel
         case .codex:
             return RateWindow.Period(windowMinutes: windowMinutes).shortLabel
+        case .grok:
+            return RateWindow.Period(windowMinutes: windowMinutes).shortLabel
         }
     }
 
