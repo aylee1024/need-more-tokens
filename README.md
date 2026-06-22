@@ -4,7 +4,7 @@
 
 ### *Because you always do.* 🪫
 
-<img src="assets/screenshot.png" alt="Need More Tokens — live menu-bar gauge for Claude, Codex and Gemini" width="300">
+<img src="assets/screenshot.png" alt="Need More Tokens — live menu-bar gauge for Claude, Codex, Gemini and Grok / Composer" width="300">
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-2da44e.svg)](LICENSE)
 &nbsp;![macOS 26 Tahoe](https://img.shields.io/badge/macOS-26_Tahoe-000000?logo=apple&logoColor=white)
@@ -14,13 +14,17 @@
 
 </div>
 
-A tiny menu-bar gauge for your **Claude · Codex · Gemini** runway. Glance up; see how much you've got left before something says *limit reached.* 📊
+A tiny menu-bar gauge for your **Claude · Codex · Gemini · Grok** runway. Glance up; see how much you've got left before something says *limit reached.* 📊
 
 Real native macOS 26. Liquid Glass, no Electron, no web view, no CLI. It reads your usage with native HTTPS clients — your token anxiety stays on your laptop. 🔒
 
 ### What you see 👀
 
 Every 5-hour and weekly limit, down to the fiddly ones — Claude's Sonnet weekly, Gemini's Antigravity quota. Your monthly plan, pay-as-you-go credits, and the exact time each window resets. The menu-bar number is whatever's closest to empty, green → amber → red as the runway shrinks.
+
+**Grok / Composer** rides along too. The two share one Grok subscription, so a single card covers both. xAI doesn't expose a pollable usage meter, so that card shows your plan and renewal date rather than %-used bars — honest about what it can and can't see.
+
+Don't want a provider? Flip it off in **Settings ▸ Providers** — it stops fetching and its card disappears. 🎛️
 
 Letters too small? Tap **A+**. It's real type, so it scales crisp, and it remembers. The dollar figures are honest estimates — a nudge, not a bill. It won't do your taxes.
 
