@@ -148,7 +148,7 @@ struct GeminiUsageClientTests {
             .json(GeminiClientFixture.quota),
         ])
 
-        let partial = await GeminiUsageClient(credentialStore: store, httpClient: http)
+        let partial = await GeminiUsageClient(credentialStore: store, tokenStore: makeTempTokenStore(), httpClient: http)
             .fetch(now: GeminiClientFixture.now)
 
         let usage = try #require(partial.usage)
@@ -196,7 +196,7 @@ struct GeminiUsageClientTests {
             .json(GeminiClientFixture.quota),
         ])
 
-        let partial = await GeminiUsageClient(credentialStore: store, httpClient: http)
+        let partial = await GeminiUsageClient(credentialStore: store, tokenStore: makeTempTokenStore(), httpClient: http)
             .fetch(now: GeminiClientFixture.now)
 
         #expect(partial.usage == nil)
@@ -213,7 +213,7 @@ struct GeminiUsageClientTests {
             .json(GeminiClientFixture.fallbackQuota),
         ])
 
-        let partial = await GeminiUsageClient(credentialStore: store, httpClient: http)
+        let partial = await GeminiUsageClient(credentialStore: store, tokenStore: makeTempTokenStore(), httpClient: http)
             .fetch(now: GeminiClientFixture.now)
 
         let usage = try #require(partial.usage)
@@ -230,7 +230,7 @@ struct GeminiUsageClientTests {
             .json(#"{}"#, status: 403),
         ])
 
-        let partial = await GeminiUsageClient(credentialStore: store, httpClient: http)
+        let partial = await GeminiUsageClient(credentialStore: store, tokenStore: makeTempTokenStore(), httpClient: http)
             .fetch(now: GeminiClientFixture.now)
 
         #expect(partial.usage == nil)
@@ -246,7 +246,7 @@ struct GeminiUsageClientTests {
             HTTPResponse(status: 200, body: Data("{".utf8), headers: [:]),
         ])
 
-        let partial = await GeminiUsageClient(credentialStore: store, httpClient: http)
+        let partial = await GeminiUsageClient(credentialStore: store, tokenStore: makeTempTokenStore(), httpClient: http)
             .fetch(now: GeminiClientFixture.now)
 
         #expect(partial.usage == nil)
@@ -262,7 +262,7 @@ struct GeminiUsageClientTests {
             .json(GeminiClientFixture.quota),
         ])
 
-        let partial = await GeminiUsageClient(credentialStore: store, httpClient: http, refresher: GeminiClientFixture.refresher(http))
+        let partial = await GeminiUsageClient(credentialStore: store, tokenStore: makeTempTokenStore(), httpClient: http, refresher: GeminiClientFixture.refresher(http))
             .fetch(now: GeminiClientFixture.now)
 
         #expect(partial.usageError == nil)
@@ -284,7 +284,7 @@ struct GeminiUsageClientTests {
         // to today's "expired" state and never attempts the refresh call.
         let refresher = GeminiTokenRefresher(httpClient: http, clientConfig: nil)
 
-        let partial = await GeminiUsageClient(credentialStore: store, httpClient: http, refresher: refresher)
+        let partial = await GeminiUsageClient(credentialStore: store, tokenStore: makeTempTokenStore(), httpClient: http, refresher: refresher)
             .fetch(now: GeminiClientFixture.now)
 
         #expect(partial.usage == nil)
@@ -297,7 +297,7 @@ struct GeminiUsageClientTests {
         defer { try? FileManager.default.removeItem(at: dir) }
         let http = StubHTTPClient(responses: [.json(GeminiClientFixture.loadProject)])
 
-        let partial = await GeminiUsageClient(credentialStore: store, httpClient: http)
+        let partial = await GeminiUsageClient(credentialStore: store, tokenStore: makeTempTokenStore(), httpClient: http)
             .fetch(now: GeminiClientFixture.now)
 
         #expect(partial.usage == nil)
@@ -312,7 +312,7 @@ struct GeminiUsageClientTests {
             .json(#"{"error":"invalid_grant"}"#, status: 400),  // refresh rejected
         ])
 
-        let partial = await GeminiUsageClient(credentialStore: store, httpClient: http, refresher: GeminiClientFixture.refresher(http),
+        let partial = await GeminiUsageClient(credentialStore: store, tokenStore: makeTempTokenStore(), httpClient: http, refresher: GeminiClientFixture.refresher(http),
                                               refreshMaxAttempts: 1, refreshRetryBaseDelay: 0)
             .fetch(now: GeminiClientFixture.now)
 
@@ -333,7 +333,7 @@ struct GeminiUsageClientTests {
             .json(GeminiClientFixture.quota),
         ])
 
-        let partial = await GeminiUsageClient(credentialStore: store, httpClient: http, refresher: GeminiClientFixture.refresher(http),
+        let partial = await GeminiUsageClient(credentialStore: store, tokenStore: makeTempTokenStore(), httpClient: http, refresher: GeminiClientFixture.refresher(http),
                                               refreshMaxAttempts: 3, refreshRetryBaseDelay: 0)
             .fetch(now: GeminiClientFixture.now)
 
@@ -356,7 +356,7 @@ struct GeminiUsageClientTests {
             .json(#"{"error":"backend"}"#, status: 503),
         ])
 
-        let partial = await GeminiUsageClient(credentialStore: store, httpClient: http, refresher: GeminiClientFixture.refresher(http),
+        let partial = await GeminiUsageClient(credentialStore: store, tokenStore: makeTempTokenStore(), httpClient: http, refresher: GeminiClientFixture.refresher(http),
                                               refreshMaxAttempts: 3, refreshRetryBaseDelay: 0)
             .fetch(now: GeminiClientFixture.now)
 
@@ -372,7 +372,7 @@ struct GeminiUsageClientTests {
         let http = StubHTTPClient(responses: [])
         let refresher = GeminiTokenRefresher(httpClient: http, clientConfig: nil)  // no local OAuth client
 
-        let partial = await GeminiUsageClient(credentialStore: store, httpClient: http, refresher: refresher,
+        let partial = await GeminiUsageClient(credentialStore: store, tokenStore: makeTempTokenStore(), httpClient: http, refresher: refresher,
                                               refreshMaxAttempts: 3, refreshRetryBaseDelay: 0)
             .fetch(now: GeminiClientFixture.now)
 
@@ -386,7 +386,7 @@ struct GeminiUsageClientTests {
         defer { try? FileManager.default.removeItem(at: dir) }
         let http = StubHTTPClient(responses: [.json(GeminiClientFixture.loadProject)])
 
-        let partial = await GeminiUsageClient(credentialStore: store, httpClient: http)
+        let partial = await GeminiUsageClient(credentialStore: store, tokenStore: makeTempTokenStore(), httpClient: http)
             .fetch(now: GeminiClientFixture.now)
 
         #expect(partial.usage == nil)
@@ -421,7 +421,7 @@ struct GeminiUsageClientTests {
         defer { try? FileManager.default.removeItem(at: dir) }
 
         // Real OAuth config (~/.config/needmoretokens/gemini-oauth.json) + real network.
-        let client = GeminiUsageClient(credentialStore: store,
+        let client = GeminiUsageClient(credentialStore: store, tokenStore: makeTempTokenStore(),
                                        httpClient: URLSessionHTTPClient(),
                                        refresher: GeminiTokenRefresher())
         // now = +2h forces resolveAccessToken down the expired → refresh branch.
@@ -431,5 +431,129 @@ struct GeminiUsageClientTests {
         print("LIVE windows:", partial.usage?.windows.map { "\($0.label)=\($0.usedPercent)%" } ?? [])
         #expect(partial.usageError == nil)
         #expect(partial.usage != nil)
+    }
+
+    // MARK: - Self-own (TokenStore) behavior
+
+    @Test func cachedAccessTokenServedWithoutKeychainOrRefresh() async throws {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let tokenStore = makeTempTokenStore()
+        tokenStore.save(GeminiCacheSeed(accessToken: "cached-access", refreshToken: "1//r",
+                                        expiresAt: now.addingTimeInterval(3_600)), for: .gemini)
+        let http = StubHTTPClient(responses: [.json(GeminiClientFixture.loadProject), .json(GeminiClientFixture.quota)])
+        // Keychain read FAILS the test if invoked — a cache hit must not touch it.
+        let store = CredentialStore(geminiKeychainReader: FailIfReadGeminiKeychain())
+        let partial = await GeminiUsageClient(credentialStore: store, tokenStore: tokenStore, httpClient: http,
+                                              refresher: GeminiClientFixture.refresher(http)).fetch(now: now)
+
+        #expect(partial.usageError == nil)
+        #expect(partial.usage != nil)
+        let reqs = await http.recordedRequests()
+        #expect(reqs.count == 2)  // loadProject + quota only — no refresh, no Keychain
+        #expect(reqs.first?.url?.absoluteString.contains("loadCodeAssist") == true)
+    }
+
+    @Test func selfRefreshesFromStoredRefreshTokenWithoutKeychain() async throws {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let tokenStore = makeTempTokenStore()
+        // Stored refresh token, but the cached access token is expired → self-refresh, no Keychain.
+        tokenStore.save(GeminiCacheSeed(accessToken: "old", refreshToken: "1//stored",
+                                        expiresAt: now.addingTimeInterval(-10)), for: .gemini)
+        let http = StubHTTPClient(responses: [
+            .json(GeminiClientFixture.refreshResponse),
+            .json(GeminiClientFixture.loadProject),
+            .json(GeminiClientFixture.quota),
+        ])
+        let store = CredentialStore(geminiKeychainReader: FailIfReadGeminiKeychain())
+        let partial = await GeminiUsageClient(credentialStore: store, tokenStore: tokenStore, httpClient: http,
+                                              refresher: GeminiClientFixture.refresher(http)).fetch(now: now)
+
+        #expect(partial.usageError == nil)
+        #expect(partial.usage != nil)
+        let reqs = await http.recordedRequests()
+        #expect(reqs.count == 3)  // refresh + loadProject + quota; no Keychain read
+        #expect(reqs[0].url?.absoluteString == "https://oauth2.googleapis.com/token")
+        #expect(reqs[1].headers["Authorization"] == "Bearer refreshed-token")
+        // The refreshed token is cached for next time (so the next fetch is a pure cache hit).
+        #expect(tokenStore.load(GeminiCacheSeed.self, for: .gemini)?.accessToken == "refreshed-token")
+    }
+
+    @Test func revokedStoredRefreshTokenReBootstrapsFromKeychain() async throws {
+        let (store, dir) = try GeminiClientFixture.store()  // Keychain: valid access + refresh token
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let tokenStore = makeTempTokenStore()
+        // Stored refresh token is dead (an agy re-auth rotated it) → 400 → re-bootstrap from Keychain.
+        tokenStore.save(GeminiCacheSeed(accessToken: nil, refreshToken: "1//dead", expiresAt: nil), for: .gemini)
+        let http = StubHTTPClient(responses: [
+            .json(#"{"error":"invalid_grant"}"#, status: 400),
+            .json(GeminiClientFixture.loadProject),
+            .json(GeminiClientFixture.quota),
+        ])
+        let partial = await GeminiUsageClient(credentialStore: store, tokenStore: tokenStore, httpClient: http,
+                                              refresher: GeminiClientFixture.refresher(http),
+                                              refreshMaxAttempts: 1, refreshRetryBaseDelay: 0).fetch(now: now)
+
+        #expect(partial.usageError == nil)
+        #expect(partial.usage != nil)
+        let reqs = await http.recordedRequests()
+        #expect(reqs.count == 3)  // dead-RT refresh (400) → Keychain bootstrap → loadProject + quota
+        #expect(reqs[0].url?.absoluteString == "https://oauth2.googleapis.com/token")
+        #expect(reqs[1].headers["Authorization"] == "Bearer gemini-token")  // the Keychain's token
+    }
+
+    @Test func serverRejectedCachedTokenClearsGeminiCache() async throws {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let tokenStore = makeTempTokenStore()
+        // Locally-valid cached access token the server rejects (loadCodeAssist 401).
+        tokenStore.save(GeminiCacheSeed(accessToken: "revoked", refreshToken: "1//r",
+                                        expiresAt: now.addingTimeInterval(3_600)), for: .gemini)
+        let http = StubHTTPClient(responses: [.json(#"{}"#, status: 401)])
+        // Cache hit serves the token → Keychain must NOT be read on this attempt.
+        let store = CredentialStore(geminiKeychainReader: FailIfReadGeminiKeychain())
+        let partial = await GeminiUsageClient(credentialStore: store, tokenStore: tokenStore, httpClient: http,
+                                              refresher: GeminiClientFixture.refresher(http)).fetch(now: now)
+
+        #expect(partial.usageError != nil)  // 401 on loadCodeAssist → unreadable
+        // Cache cleared so the next cycle re-reads/refreshes instead of serving the dead token.
+        #expect(tokenStore.load(GeminiCacheSeed.self, for: .gemini) == nil)
+    }
+
+    @Test func cacheFallbackToKeychainWhenClientConfigMissing() async throws {
+        let (store, dir) = try GeminiClientFixture.store()  // Keychain: valid access + refresh token
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let tokenStore = makeTempTokenStore()
+        
+        // Cache has a refresh token, but access token is nil/expired.
+        tokenStore.save(GeminiCacheSeed(accessToken: nil, refreshToken: "1//stored", expiresAt: nil), for: .gemini)
+        
+        // No client config.
+        let refresher = GeminiTokenRefresher(clientConfig: nil)
+        let http = StubHTTPClient(responses: [.json(GeminiClientFixture.loadProject), .json(GeminiClientFixture.quota)])
+        
+        let partial = await GeminiUsageClient(credentialStore: store, tokenStore: tokenStore, httpClient: http,
+                                              refresher: refresher, refreshMaxAttempts: 1, refreshRetryBaseDelay: 0).fetch(now: now)
+        
+        // NMT should have read the Keychain and returned the valid "gemini-token" instead of failing with expired.
+        #expect(partial.usageError == nil)
+        #expect(partial.usage != nil)
+    }
+}
+
+/// Seed shape matching `GeminiUsageClient.Cache` (same Codable keys) so tests can pre-populate
+/// NMT's token cache and assert what it serves.
+private struct GeminiCacheSeed: Codable, Equatable {
+    var accessToken: String?
+    var refreshToken: String?
+    var expiresAt: Date?
+}
+
+/// A Keychain reader that fails the test if read — used to prove a cached/stored token serves
+/// the request without any Keychain access.
+private struct FailIfReadGeminiKeychain: KeychainReading {
+    func readGenericPassword(service: String, account: String?) throws -> Data? {
+        Issue.record("Keychain must not be read when a cached/stored token can serve the request")
+        return nil
     }
 }

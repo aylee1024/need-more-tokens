@@ -4,24 +4,45 @@ public struct ClaudeUsageClient: Sendable {
     private static let usageURL = URL(string: "https://api.anthropic.com/api/oauth/usage")!
 
     private let credentialLoader: ClaudeCredentialLoader
+    private let tokenStore: TokenStore
     private let httpClient: any HTTPClient
     private let timeout: TimeInterval
+    private let skew: TimeInterval
 
     public init(keychainReader: any KeychainReading = SystemKeychainReader(),
+                tokenStore: TokenStore = TokenStore(),
                 httpClient: any HTTPClient = URLSessionHTTPClient(),
                 timeout: TimeInterval = 30,
+                skew: TimeInterval = CredentialExpiry.defaultSkew,
                 service: String = ClaudeCredentialLoader.defaultService,
                 account: String? = ClaudeCredentialLoader.defaultAccount) {
         self.credentialLoader = ClaudeCredentialLoader(keychainReader: keychainReader, service: service, account: account)
+        self.tokenStore = tokenStore
         self.httpClient = httpClient
         self.timeout = timeout
+        self.skew = skew
+    }
+
+    /// NMT's cached Claude access token (in `TokenStore`). Anthropic ROTATES Claude's refresh
+    /// token, so NMT must NOT hold or refresh one — doing so would invalidate Claude Code and
+    /// force a CLI re-login. NMT therefore only ever READS the Keychain, and caches the access
+    /// token for its full ~8h life so it reads the Keychain ~once per token, not every cycle.
+    private struct Cache: Codable, Sendable {
+        var accessToken: String
+        var expiresAt: Date?
+        var subscriptionType: String?
+        var scopes: [String]?
     }
 
     public func fetch(now: Date = Date()) async -> ProviderPartial {
         do {
-            let credential = try credentialLoader.load(now: now)
+            let credential = try resolveAccess(now: now)
             let response = try await httpClient.send(Self.request(accessToken: credential.accessToken), timeout: timeout)
             guard response.status == 200 else {
+                // A 401/403 means the (possibly cached) token was rejected/revoked server-side.
+                // Drop NMT's cache so the next cycle re-reads the Keychain (where Claude Code
+                // keeps a fresh token) instead of serving the dead token for up to ~8h.
+                if response.status == 401 || response.status == 403 { tokenStore.clear(for: .claude) }
                 return Self.failure("Claude usage request failed with HTTP \(response.status)")
             }
 
@@ -38,6 +59,30 @@ public struct ClaudeUsageClient: Sendable {
         } catch {
             return Self.failure("Claude usage unreadable (\(type(of: error)))")
         }
+    }
+
+    /// Resolves a Claude access token, reading the Keychain only when NMT's cached token has
+    /// actually expired. While the cached token is still valid (~8h), this returns it without
+    /// any Keychain read — so NMT can't trigger the macOS access prompt on the periodic path,
+    /// and it keeps showing data for the token's life even if the grant is lost after an app
+    /// update. On a cache miss it reads the Keychain (where Claude Code keeps a fresh token)
+    /// and re-caches. NMT never refreshes — that would rotate and break Claude Code.
+    private func resolveAccess(now: Date) throws -> ClaudeCredentialAccess {
+        if let cache = tokenStore.load(Cache.self, for: .claude),
+           let expiry = cache.expiresAt, expiry > now.addingTimeInterval(skew) {
+            return ClaudeCredentialAccess(accessToken: cache.accessToken,
+                                          subscriptionType: cache.subscriptionType,
+                                          scopes: cache.scopes,
+                                          expiresAt: expiry.timeIntervalSince1970 * 1_000)
+        }
+        let access = try credentialLoader.load(now: now)
+        let expiresAt = access.expiresAt.map { Date(timeIntervalSince1970: $0 / 1_000) }
+        tokenStore.save(Cache(accessToken: access.accessToken,
+                              expiresAt: expiresAt,
+                              subscriptionType: access.subscriptionType,
+                              scopes: access.scopes),
+                        for: .claude)
+        return access
     }
 
     private static func request(accessToken: String) -> URLRequest {

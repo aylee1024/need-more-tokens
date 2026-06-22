@@ -168,3 +168,12 @@ struct TestGeminiKeychainReader: KeychainReading {
         return data
     }
 }
+
+/// A `TokenStore` backed by a unique temp directory, so each test gets an isolated,
+/// empty NMT token cache (never the real `~/.config/needmoretokens/`). Without this the
+/// usage clients would read/write a shared on-disk cache and leak state between tests.
+func makeTempTokenStore() -> TokenStore {
+    let dir = FileManager.default.temporaryDirectory
+        .appendingPathComponent("nmt-tokenstore-\(UUID().uuidString)", isDirectory: true)
+    return TokenStore(directory: dir)
+}

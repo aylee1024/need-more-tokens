@@ -65,7 +65,7 @@ struct ClaudeUsageClientTests {
         let http = StubHTTPClient(responses: [.json(ClaudeClientFixture.usage)])
         let reader = ClientStubKeychainReader(data: Data(ClaudeClientFixture.credential.utf8))
 
-        let partial = await ClaudeUsageClient(keychainReader: reader, httpClient: http)
+        let partial = await ClaudeUsageClient(keychainReader: reader, tokenStore: makeTempTokenStore(), httpClient: http)
             .fetch(now: ClaudeClientFixture.now)
 
         let usage = try #require(partial.usage)
@@ -99,7 +99,7 @@ struct ClaudeUsageClientTests {
         let http = StubHTTPClient(responses: [.json(#"{}"#, status: 401)])
         let reader = ClientStubKeychainReader(data: Data(ClaudeClientFixture.credential.utf8))
 
-        let partial = await ClaudeUsageClient(keychainReader: reader, httpClient: http)
+        let partial = await ClaudeUsageClient(keychainReader: reader, tokenStore: makeTempTokenStore(), httpClient: http)
             .fetch(now: ClaudeClientFixture.now)
 
         #expect(partial.usage == nil)
@@ -111,7 +111,7 @@ struct ClaudeUsageClientTests {
         let http = StubHTTPClient(responses: [HTTPResponse(status: 200, body: Data("{".utf8), headers: [:])])
         let reader = ClientStubKeychainReader(data: Data(ClaudeClientFixture.credential.utf8))
 
-        let partial = await ClaudeUsageClient(keychainReader: reader, httpClient: http)
+        let partial = await ClaudeUsageClient(keychainReader: reader, tokenStore: makeTempTokenStore(), httpClient: http)
             .fetch(now: ClaudeClientFixture.now)
 
         #expect(partial.usage == nil)
@@ -122,11 +122,79 @@ struct ClaudeUsageClientTests {
         let http = StubHTTPClient(responses: [.json(ClaudeClientFixture.usage)])
         let reader = ClientStubKeychainReader(data: nil)
 
-        let partial = await ClaudeUsageClient(keychainReader: reader, httpClient: http)
+        let partial = await ClaudeUsageClient(keychainReader: reader, tokenStore: makeTempTokenStore(), httpClient: http)
             .fetch(now: ClaudeClientFixture.now)
 
         #expect(partial.usage == nil)
         #expect(partial.usageError?.contains("Claude credentials not found") == true)
         #expect(await http.recordedRequests().isEmpty)
+    }
+
+    @Test func cachedAccessTokenServedWithoutKeychain() async throws {
+        let now = ClaudeClientFixture.now
+        let tokenStore = makeTempTokenStore()
+        // A valid cached token (expires in 1h) must be served WITHOUT reading the Keychain —
+        // this is what makes the periodic path prompt-free between ~8h refreshes.
+        tokenStore.save(ClaudeCacheSeed(accessToken: "cached-claude", expiresAt: now.addingTimeInterval(3_600),
+                                        subscriptionType: "max", scopes: nil), for: .claude)
+        let http = StubHTTPClient(responses: [.json(ClaudeClientFixture.usage)])
+
+        let partial = await ClaudeUsageClient(keychainReader: FailIfReadClaudeKeychain(), tokenStore: tokenStore, httpClient: http)
+            .fetch(now: now)
+
+        let usage = try #require(partial.usage)
+        #expect(partial.usageError == nil)
+        #expect(usage.planName == "Claude Max")  // recovered from the cached subscriptionType
+        let reqs = await http.recordedRequests()
+        #expect(reqs.count == 1)
+        #expect(reqs.first?.headers["Authorization"] == "Bearer cached-claude")  // the cached token
+    }
+
+    @Test func cacheMissReadsKeychainThenCachesForNextFetch() async throws {
+        let now = ClaudeClientFixture.now
+        let tokenStore = makeTempTokenStore()
+        let reader = ClientStubKeychainReader(data: Data(ClaudeClientFixture.credential.utf8))
+        let http = StubHTTPClient(responses: [.json(ClaudeClientFixture.usage)])
+
+        _ = await ClaudeUsageClient(keychainReader: reader, tokenStore: tokenStore, httpClient: http).fetch(now: now)
+
+        // After a cache-miss fetch, the token is cached with the credential's real expiry.
+        let cached = tokenStore.load(ClaudeCacheSeed.self, for: .claude)
+        #expect(cached?.accessToken == "sk-ant-oat01-claude-token")
+        #expect(cached?.subscriptionType == "max")
+        // expiresAt = the fixture's expiresAt (1800000000000 ms) as a Date.
+        #expect(cached?.expiresAt == Date(timeIntervalSince1970: 1_800_000_000))
+    }
+
+    @Test func serverRejectedCachedTokenClearsCacheSoNextCycleRecovers() async throws {
+        let now = ClaudeClientFixture.now
+        let tokenStore = makeTempTokenStore()
+        // Locally-valid cached token (expires in 1h) that the SERVER rejects (401) — e.g.
+        // revoked out-of-band. Without clearing, NMT would keep serving it for up to ~8h.
+        tokenStore.save(ClaudeCacheSeed(accessToken: "revoked", expiresAt: now.addingTimeInterval(3_600),
+                                        subscriptionType: "max", scopes: nil), for: .claude)
+        let http = StubHTTPClient(responses: [.json(#"{}"#, status: 401)])
+        let reader = ClientStubKeychainReader(data: Data(ClaudeClientFixture.credential.utf8))
+
+        let partial = await ClaudeUsageClient(keychainReader: reader, tokenStore: tokenStore, httpClient: http).fetch(now: now)
+
+        #expect(partial.usageError?.contains("HTTP 401") == true)
+        // Cache cleared → the next fetch re-reads the Keychain instead of serving the dead token.
+        #expect(tokenStore.load(ClaudeCacheSeed.self, for: .claude) == nil)
+    }
+}
+
+/// Seed shape matching `ClaudeUsageClient.Cache` (same Codable keys).
+private struct ClaudeCacheSeed: Codable, Equatable {
+    var accessToken: String
+    var expiresAt: Date?
+    var subscriptionType: String?
+    var scopes: [String]?
+}
+
+private struct FailIfReadClaudeKeychain: KeychainReading {
+    func readGenericPassword(service: String, account: String?) throws -> Data? {
+        Issue.record("Keychain must not be read when a cached Claude token can serve the request")
+        return nil
     }
 }

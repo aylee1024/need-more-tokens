@@ -73,7 +73,19 @@ public struct GeminiTokenRefresher: Sendable {
         self.clientConfig = clientConfig
     }
 
-    public func refreshedAccessToken(refreshToken: String) async throws -> String {
+    /// A freshly minted access token plus how long it is valid, so the caller can cache it
+    /// and only refresh again near expiry (instead of on every fetch).
+    public struct RefreshedToken: Sendable, Equatable {
+        public let accessToken: String
+        /// Seconds until the access token expires, if the server reported `expires_in`.
+        public let expiresIn: TimeInterval?
+        public init(accessToken: String, expiresIn: TimeInterval?) {
+            self.accessToken = accessToken
+            self.expiresIn = expiresIn
+        }
+    }
+
+    public func refreshedToken(refreshToken: String) async throws -> RefreshedToken {
         guard let config = clientConfig else { throw GeminiRefreshError.clientConfigMissing }
         let response = try await httpClient.send(Self.request(refreshToken: refreshToken, config: config), timeout: timeout)
         guard response.status == 200 else {
@@ -84,7 +96,11 @@ public struct GeminiTokenRefresher: Sendable {
               CredentialStore.hasNoControlCharacters(token) else {
             throw GeminiRefreshError.noAccessToken
         }
-        return token
+        return RefreshedToken(accessToken: token, expiresIn: payload.expiresIn)
+    }
+
+    public func refreshedAccessToken(refreshToken: String) async throws -> String {
+        try await refreshedToken(refreshToken: refreshToken).accessToken
     }
 
     static func request(refreshToken: String, config: GeminiOAuthClientConfig) -> URLRequest {
@@ -113,7 +129,11 @@ public struct GeminiTokenRefresher: Sendable {
 
     private struct RefreshResponse: Decodable {
         let accessToken: String?
-        private enum CodingKeys: String, CodingKey { case accessToken = "access_token" }
+        let expiresIn: TimeInterval?
+        private enum CodingKeys: String, CodingKey {
+            case accessToken = "access_token"
+            case expiresIn = "expires_in"
+        }
     }
 }
 

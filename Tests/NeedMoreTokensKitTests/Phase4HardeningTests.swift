@@ -27,7 +27,7 @@ struct Phase4HardeningTests {
             .response(HTTPResponse(status: 403, body: Data(), headers: [:])),          // loadCodeAssist fails
             .response(.json(#"{"groups":[]}"#)),
         ])
-        let usage = await GeminiUsageClient(credentialStore: store, httpClient: http).fetch()
+        let usage = await GeminiUsageClient(credentialStore: store, tokenStore: makeTempTokenStore(), httpClient: http).fetch()
         #expect(usage.usage == nil)
         #expect(usage.usageError?.contains("Gemini usage unreadable") == true)
         #expect(await http.recordedRequests().count == 1)
