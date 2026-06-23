@@ -4,12 +4,16 @@ public struct ClaudeUsageClient: Sendable {
     private static let usageURL = URL(string: "https://api.anthropic.com/api/oauth/usage")!
 
     private let credentialLoader: ClaudeCredentialLoader
+    private let ownStore: ClaudeOAuthStore
+    private let claudeRefresher: ClaudeTokenRefresher
     private let tokenStore: TokenStore
     private let httpClient: any HTTPClient
     private let timeout: TimeInterval
     private let skew: TimeInterval
 
     public init(keychainReader: any KeychainReading = SystemKeychainReader(),
+                ownStore: ClaudeOAuthStore = ClaudeOAuthStore(),
+                claudeRefresher: ClaudeTokenRefresher? = nil,
                 tokenStore: TokenStore = TokenStore(),
                 httpClient: any HTTPClient = URLSessionHTTPClient(),
                 timeout: TimeInterval = 30,
@@ -17,6 +21,8 @@ public struct ClaudeUsageClient: Sendable {
                 service: String = ClaudeCredentialLoader.defaultService,
                 account: String? = ClaudeCredentialLoader.defaultAccount) {
         self.credentialLoader = ClaudeCredentialLoader(keychainReader: keychainReader, service: service, account: account)
+        self.ownStore = ownStore
+        self.claudeRefresher = claudeRefresher ?? ClaudeTokenRefresher(httpClient: httpClient, timeout: timeout)
         self.tokenStore = tokenStore
         self.httpClient = httpClient
         self.timeout = timeout
@@ -36,13 +42,13 @@ public struct ClaudeUsageClient: Sendable {
 
     public func fetch(now: Date = Date()) async -> ProviderPartial {
         do {
-            let credential = try resolveAccess(now: now)
+            let credential = try await resolveAccess(now: now)
             let response = try await httpClient.send(Self.request(accessToken: credential.accessToken), timeout: timeout)
             guard response.status == 200 else {
-                // A 401/403 means the (possibly cached) token was rejected/revoked server-side.
-                // Drop NMT's cache so the next cycle re-reads the Keychain (where Claude Code
-                // keeps a fresh token) instead of serving the dead token for up to ~8h.
-                if response.status == 401 || response.status == 403 { tokenStore.clear(for: .claude) }
+                // A 401/403 means the token was rejected/revoked server-side. Invalidate so the
+                // next cycle gets a fresh one: for NMT's own token force a refresh; for the
+                // Keychain-fallback path drop the cache so it re-reads.
+                if response.status == 401 || response.status == 403 { invalidateAccess() }
                 return Self.failure("Claude usage request failed with HTTP \(response.status)")
             }
 
@@ -61,13 +67,40 @@ public struct ClaudeUsageClient: Sendable {
         }
     }
 
-    /// Resolves a Claude access token, reading the Keychain only when NMT's cached token has
-    /// actually expired. While the cached token is still valid (~8h), this returns it without
-    /// any Keychain read — so NMT can't trigger the macOS access prompt on the periodic path,
-    /// and it keeps showing data for the token's life even if the grant is lost after an app
-    /// update. On a cache miss it reads the Keychain (where Claude Code keeps a fresh token)
-    /// and re-caches. NMT never refreshes — that would rotate and break Claude Code.
-    private func resolveAccess(now: Date) throws -> ClaudeCredentialAccess {
+    /// Resolves a Claude access token.
+    ///
+    /// PRIMARY path — NMT's OWN OAuth token (`ClaudeOAuthStore`): if present, use it and NEVER
+    /// touch the Keychain. While the access token is valid, return it; once it nears expiry,
+    /// self-refresh and WRITE BACK the rotated refresh token (Anthropic rotates it — persisting
+    /// the new one is load-bearing). Because this path never reads Claude Code's Keychain item,
+    /// Claude Code's periodic token rewrite can't evict NMT — that's what makes Claude permanent.
+    ///
+    /// FALLBACK path — only when NMT has no own token (never set up): the previous behavior of
+    /// reading the Keychain (cached for the token's life). Subject to the eviction, but it keeps
+    /// a not-yet-onboarded install working.
+    private func resolveAccess(now: Date) async throws -> ClaudeCredentialAccess {
+        if var own = ownStore.load() {
+            if let expiry = own.expiresAt, expiry > now.addingTimeInterval(skew) {
+                return Self.access(from: own)
+            }
+            do {
+                let refreshed = try await claudeRefresher.refreshed(refreshToken: own.refreshToken, clientID: own.clientID)
+                own.accessToken = refreshed.accessToken
+                own.refreshToken = refreshed.refreshToken          // ROTATED — must persist
+                own.expiresAtEpoch = now.addingTimeInterval(refreshed.expiresIn ?? 28_800).timeIntervalSince1970
+                ownStore.save(own)
+                return Self.access(from: own)
+            } catch {
+                // The own refresh token is revoked (e.g. signed out everywhere) → re-auth needed.
+                // Do NOT fall back to the Keychain here: that would reintroduce the eviction we
+                // just eliminated. The user re-runs the one-time NMT Claude sign-in.
+                throw CredentialAccessError.invalidCredential(
+                    provider: .claude,
+                    message: "Claude sign-in expired — re-run the one-time NMT Claude setup")
+            }
+        }
+
+        // Fallback (no own token configured): Keychain, cached for the token's life.
         if let cache = tokenStore.load(Cache.self, for: .claude),
            let expiry = cache.expiresAt, expiry > now.addingTimeInterval(skew) {
             return ClaudeCredentialAccess(accessToken: cache.accessToken,
@@ -83,6 +116,24 @@ public struct ClaudeUsageClient: Sendable {
                               scopes: access.scopes),
                         for: .claude)
         return access
+    }
+
+    private static func access(from own: ClaudeOAuthToken) -> ClaudeCredentialAccess {
+        ClaudeCredentialAccess(accessToken: own.accessToken,
+                               subscriptionType: own.subscriptionType,
+                               scopes: nil,
+                               expiresAt: own.expiresAtEpoch.map { $0 * 1_000 })
+    }
+
+    /// On a server-side token rejection (401/403): for NMT's own token, force a refresh next
+    /// cycle (mark it expired + persist); for the Keychain fallback, drop the cache so it re-reads.
+    private func invalidateAccess() {
+        if var own = ownStore.load() {
+            own.expiresAtEpoch = 0
+            ownStore.save(own)
+        } else {
+            tokenStore.clear(for: .claude)
+        }
     }
 
     private static func request(accessToken: String) -> URLRequest {

@@ -177,3 +177,10 @@ func makeTempTokenStore() -> TokenStore {
         .appendingPathComponent("nmt-tokenstore-\(UUID().uuidString)", isDirectory: true)
     return TokenStore(directory: dir)
 }
+
+/// A `ClaudeOAuthStore` pointed at a non-existent file, so `load()` returns nil and the Claude
+/// client exercises its Keychain-fallback path (not the real `~/.config/.../claude-token.json`).
+func emptyClaudeOAuthStore() -> ClaudeOAuthStore {
+    ClaudeOAuthStore(url: FileManager.default.temporaryDirectory
+        .appendingPathComponent("nmt-claude-absent-\(UUID().uuidString).json"))
+}
