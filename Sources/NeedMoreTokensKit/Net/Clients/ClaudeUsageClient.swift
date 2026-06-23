@@ -62,6 +62,9 @@ public struct ClaudeUsageClient: Sendable {
                                    cost: Self.unavailableCost())
         } catch let error as CredentialAccessError {
             return Self.failure(error.userMessage)
+        } catch let error as ClaudeRefreshError {
+            // Transient refresh failure → temporary, retried next cycle (not a re-auth demand).
+            return Self.failure("Claude usage temporarily unavailable (\(error))")
         } catch {
             return Self.failure("Claude usage unreadable (\(type(of: error)))")
         }
@@ -90,14 +93,16 @@ public struct ClaudeUsageClient: Sendable {
                 own.expiresAtEpoch = now.addingTimeInterval(refreshed.expiresIn ?? 28_800).timeIntervalSince1970
                 ownStore.save(own)
                 return Self.access(from: own)
-            } catch {
-                // The own refresh token is revoked (e.g. signed out everywhere) → re-auth needed.
-                // Do NOT fall back to the Keychain here: that would reintroduce the eviction we
-                // just eliminated. The user re-runs the one-time NMT Claude sign-in.
+            } catch ClaudeRefreshError.http(let status) where status == 400 || status == 401 || status == 403 {
+                // ONLY a definitive auth rejection means the refresh token is revoked (signed out
+                // everywhere) → re-auth needed. Do NOT fall back to the Keychain here (that would
+                // reintroduce the eviction we just eliminated). The user re-runs the one-time sign-in.
                 throw CredentialAccessError.invalidCredential(
                     provider: .claude,
                     message: "Claude sign-in expired — re-run the one-time NMT Claude setup")
             }
+            // Transient refresh failures (5xx / 429 / network / malformed) propagate as-is, so the
+            // card shows a temporary error and the NEXT cycle retries — never a wrong "re-run setup".
         }
 
         // Fallback (no own token configured): Keychain, cached for the token's life.

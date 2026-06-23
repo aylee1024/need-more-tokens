@@ -276,4 +276,26 @@ struct ClaudeOwnTokenTests {
         let reqs = await http.recordedRequests()
         #expect(reqs.count == 1)  // the failed refresh only — never hit usage, never read the Keychain
     }
+
+    @Test func transientRefreshFailureDoesNotDemandReauthAndKeepsToken() async throws {
+        let now = ClaudeClientFixture.now
+        let store = ownStore(token(access: "old", refresh: "still-good",
+                                   expiresAtEpoch: now.addingTimeInterval(-10).timeIntervalSince1970))
+        let http = StubHTTPClient(responses: [.json(#"{"error":"backend"}"#, status: 503)])  // transient
+
+        let partial = await ClaudeUsageClient(keychainReader: FailIfReadClaudeKeychain(), ownStore: store,
+                                              tokenStore: makeTempTokenStore(), httpClient: http).fetch(now: now)
+
+        #expect(partial.usage == nil)
+        #expect(partial.usageError?.contains("temporarily unavailable") == true)
+        #expect(partial.usageError?.contains("re-run") == false)   // a 5xx must NOT demand re-auth
+        // A transient failure must not wipe/alter the still-valid refresh token (next cycle retries).
+        #expect(store.load()?.refreshToken == "still-good")
+    }
+
+    @Test func descriptionRedactsTokens() {
+        let s = String(describing: token(access: "SECRET-ACCESS", refresh: "SECRET-REFRESH", expiresAtEpoch: 1))
+        #expect(!s.contains("SECRET-ACCESS"))
+        #expect(!s.contains("SECRET-REFRESH"))
+    }
 }

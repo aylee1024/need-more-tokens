@@ -44,6 +44,16 @@ public struct ClaudeOAuthToken: Codable, Sendable, Equatable {
     }
 }
 
+// Defense-in-depth (matches the other credential structs): this holds LIVE access + refresh
+// tokens, and the synthesized reflection description would print them verbatim. Redact so any
+// accidental log/interpolation can't leak them.
+extension ClaudeOAuthToken: CustomStringConvertible, CustomDebugStringConvertible {
+    public var description: String {
+        "ClaudeOAuthToken(clientID: \(clientID), subscriptionType: \(subscriptionType ?? "nil"), accessToken: <redacted>, refreshToken: <redacted>)"
+    }
+    public var debugDescription: String { description }
+}
+
 public struct ClaudeOAuthStore: Sendable {
     private let url: URL
     public init(url: URL = ClaudeOAuthStore.defaultURL) { self.url = url }
@@ -69,5 +79,7 @@ public struct ClaudeOAuthStore: Sendable {
                                                  attributes: [.posixPermissions: 0o700])
         FileManager.default.createFile(atPath: url.path, contents: data,
                                        attributes: [.posixPermissions: 0o600])
+        // createFile may not re-apply perms when overwriting a pre-existing file; enforce 0600.
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
     }
 }
