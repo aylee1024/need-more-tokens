@@ -155,12 +155,7 @@ public struct ClaudeUsageClient: Sendable {
     private static func usage(from payload: RawClaudeUsagePayload,
                               credential: ClaudeCredentialAccess,
                               now: Date) -> ProviderUsage? {
-        let windows = [
-            window(from: payload.fiveHour, label: EngineMapper.windowLabel(provider: .claude, position: 0, windowMinutes: 300), minutes: 300),
-            window(from: payload.sevenDay, label: EngineMapper.windowLabel(provider: .claude, position: 1, windowMinutes: 10_080), minutes: 10_080),
-            window(from: payload.sevenDaySonnet, label: EngineMapper.windowLabel(provider: .claude, position: 2, windowMinutes: 10_080), minutes: 10_080),
-            window(from: payload.sevenDayOpus, label: "Weekly · Opus", minutes: 10_080),
-        ].compactMap { $0 }
+        let windows = claudeWindows(from: payload)
 
         let monthlyCap = monetaryCap(from: payload.extraUsage)
         guard !windows.isEmpty || monthlyCap != nil else { return nil }
@@ -177,16 +172,79 @@ public struct ClaudeUsageClient: Sendable {
         )
     }
 
-    private static func window(from raw: RawClaudeUsageWindow?, label: String, minutes: Int) -> RateWindow? {
-        guard let raw, let usedPercent = raw.utilization else { return nil }
-        return RateWindow(
+    /// The modern `limits` array is authoritative — it carries the 5-hour, "Weekly · All Models",
+    /// and per-model "Weekly · <model>" (e.g. Fable) buckets that the legacy flat `seven_day_*`
+    /// fields no longer report. Fall back to the flat fields only for the older API shape.
+    private static func claudeWindows(from payload: RawClaudeUsagePayload) -> [RateWindow] {
+        if let limits = payload.limits, !limits.isEmpty {
+            let mapped = windowsFromLimits(limits, payload: payload)
+            if !mapped.isEmpty { return mapped }
+        }
+        return legacyFlatWindows(from: payload)
+    }
+
+    private static func windowsFromLimits(_ limits: [RawClaudeLimit], payload: RawClaudeUsagePayload) -> [RateWindow] {
+        var session: RateWindow?
+        var weeklyAll: RateWindow?
+        var scoped: [RateWindow] = []
+        for limit in limits {
+            // Match `kind` case-insensitively so a future capitalization drift doesn't drop a window.
+            guard let kind = limit.kind?.lowercased(), let percent = limit.percent else { continue }
+            let resets = EngineMapper.parseDate(limit.resetsAt)
+            switch kind {
+            case "session":
+                session = makeWindow(label: "5-hour", minutes: 300, percent: percent, resets: resets)
+            case "weekly_all":
+                weeklyAll = makeWindow(label: "Weekly · All Models", minutes: 10_080, percent: percent, resets: resets)
+            case "weekly_scoped":
+                scoped.append(makeWindow(label: "Weekly · \(scopedModelName(limit.scope))", minutes: 10_080, percent: percent, resets: resets))
+            default:
+                continue
+            }
+        }
+        // Redundancy: if the modern array omitted the 5-hour or weekly-all bucket, backfill it from
+        // the flat fields (still populated by the API) so the window is never silently dropped.
+        if session == nil { session = window(from: payload.fiveHour, label: "5-hour", minutes: 300) }
+        if weeklyAll == nil { weeklyAll = window(from: payload.sevenDay, label: "Weekly · All Models", minutes: 10_080) }
+        // Deterministic order regardless of the array's order: 5-hour, Weekly · All, then scoped.
+        return [session, weeklyAll].compactMap { $0 } + scoped
+    }
+
+    /// A scoped weekly limit's model name for its "Weekly · <model>" label: prefer the display
+    /// name, fall back to the model id, then a generic — guarding nil AND empty strings.
+    private static func scopedModelName(_ scope: RawClaudeLimitScope?) -> String {
+        if let name = scope?.model?.displayName?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty {
+            return name
+        }
+        if let id = scope?.model?.id?.trimmingCharacters(in: .whitespacesAndNewlines), !id.isEmpty {
+            return id
+        }
+        return "Scoped"
+    }
+
+    private static func makeWindow(label: String, minutes: Int, percent: Double, resets: Date?) -> RateWindow {
+        RateWindow(
             label: label,
             period: RateWindow.Period(windowMinutes: minutes),
             windowMinutes: minutes,
-            usedPercent: clampPercent(usedPercent),
-            resetsAt: EngineMapper.parseDate(raw.resetsAt),
+            usedPercent: clampPercent(percent),
+            resetsAt: resets,
             resetDescription: nil
         )
+    }
+
+    private static func legacyFlatWindows(from payload: RawClaudeUsagePayload) -> [RateWindow] {
+        [
+            window(from: payload.fiveHour, label: EngineMapper.windowLabel(provider: .claude, position: 0, windowMinutes: 300), minutes: 300),
+            window(from: payload.sevenDay, label: EngineMapper.windowLabel(provider: .claude, position: 1, windowMinutes: 10_080), minutes: 10_080),
+            window(from: payload.sevenDaySonnet, label: EngineMapper.windowLabel(provider: .claude, position: 2, windowMinutes: 10_080), minutes: 10_080),
+            window(from: payload.sevenDayOpus, label: "Weekly · Opus", minutes: 10_080),
+        ].compactMap { $0 }
+    }
+
+    private static func window(from raw: RawClaudeUsageWindow?, label: String, minutes: Int) -> RateWindow? {
+        guard let raw, let usedPercent = raw.utilization else { return nil }
+        return makeWindow(label: label, minutes: minutes, percent: usedPercent, resets: EngineMapper.parseDate(raw.resetsAt))
     }
 
     private static func monetaryCap(from raw: RawClaudeExtraUsage?) -> MonetaryCap? {

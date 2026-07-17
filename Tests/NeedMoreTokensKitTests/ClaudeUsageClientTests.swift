@@ -57,6 +57,53 @@ private enum ClaudeClientFixture {
       }
     }
     """
+
+    // Modern shape (verified live 2026-07-17): the weekly per-model buckets moved into `limits`.
+    // Flat seven_day_sonnet is present here too, to prove the `limits` array WINS over the flat fields.
+    static let usageWithLimits = """
+    {
+      "five_hour": {
+        "utilization": 5,
+        "resets_at": "2026-07-18T00:40:00Z"
+      },
+      "seven_day": {
+        "utilization": 25,
+        "resets_at": "2026-07-20T09:00:00Z"
+      },
+      "seven_day_sonnet": {
+        "utilization": 99,
+        "resets_at": "2026-07-20T09:00:00Z"
+      },
+      "seven_day_opus": null,
+      "limits": [
+        {
+          "kind": "session",
+          "group": "session",
+          "percent": 5,
+          "severity": "normal",
+          "resets_at": "2026-07-18T00:40:00Z",
+          "is_active": false
+        },
+        {
+          "kind": "weekly_all",
+          "group": "weekly",
+          "percent": 25,
+          "severity": "normal",
+          "resets_at": "2026-07-20T09:00:00Z",
+          "is_active": true
+        },
+        {
+          "kind": "weekly_scoped",
+          "group": "weekly",
+          "percent": 21,
+          "severity": "normal",
+          "resets_at": "2026-07-20T09:00:00Z",
+          "scope": { "model": { "id": null, "display_name": "Fable" }, "surface": null },
+          "is_active": false
+        }
+      ]
+    }
+    """
 }
 
 @Suite("Claude native usage client")
@@ -93,6 +140,105 @@ struct ClaudeUsageClientTests {
         #expect(request.headers["User-Agent"] == "claude-code/2.1.0")
         #expect(request.headers["Accept"] == "application/json")
         #expect(request.headers["Content-Type"] == "application/json")
+    }
+
+    @Test func mapsLimitsArrayWithFableWeekly() async throws {
+        let http = StubHTTPClient(responses: [.json(ClaudeClientFixture.usageWithLimits)])
+        let reader = ClientStubKeychainReader(data: Data(ClaudeClientFixture.credential.utf8))
+
+        let partial = await ClaudeUsageClient(keychainReader: reader, ownStore: emptyClaudeOAuthStore(), tokenStore: makeTempTokenStore(), httpClient: http)
+            .fetch(now: ClaudeClientFixture.now)
+
+        let usage = try #require(partial.usage)
+        #expect(partial.usageError == nil)
+        // The `limits` array is authoritative: 5-hour + Weekly · All Models + Weekly · Fable.
+        // The flat seven_day_sonnet (99%) must be ignored because `limits` wins.
+        #expect(usage.windows.map(\.label) == ["5-hour", "Weekly · All Models", "Weekly · Fable"])
+        #expect(usage.windows.map(\.period) == [.fiveHour, .weekly, .weekly])
+        #expect(usage.windows.map(\.usedPercent) == [5, 25, 21])
+        #expect(usage.windows.allSatisfy { $0.resetsAt != nil })
+    }
+
+    @Test func limitsEmptyFallsBackToFlatFields() async throws {
+        let json = """
+        {
+          "five_hour": { "utilization": 7, "resets_at": "2026-07-18T00:40:00Z" },
+          "seven_day": { "utilization": 12, "resets_at": "2026-07-20T09:00:00Z" },
+          "limits": []
+        }
+        """
+        let http = StubHTTPClient(responses: [.json(json)])
+        let reader = ClientStubKeychainReader(data: Data(ClaudeClientFixture.credential.utf8))
+
+        let partial = await ClaudeUsageClient(keychainReader: reader, ownStore: emptyClaudeOAuthStore(), tokenStore: makeTempTokenStore(), httpClient: http)
+            .fetch(now: ClaudeClientFixture.now)
+
+        let usage = try #require(partial.usage)
+        #expect(usage.windows.map(\.label) == ["5-hour", "Weekly"])
+        #expect(usage.windows.map(\.usedPercent) == [7, 12])
+    }
+
+    @Test func limitsBackfillMissingWeeklyAllFromFlatField() async throws {
+        // `limits` omits weekly_all but the flat `seven_day` is still populated → the weekly-all
+        // window must be backfilled from the flat field, not silently dropped.
+        let json = """
+        {
+          "seven_day": { "utilization": 42, "resets_at": "2026-07-20T09:00:00Z" },
+          "limits": [
+            { "kind": "session", "group": "session", "percent": 5, "resets_at": "2026-07-18T00:40:00Z" },
+            { "kind": "weekly_scoped", "group": "weekly", "percent": 21, "resets_at": "2026-07-20T09:00:00Z", "scope": { "model": { "id": null, "display_name": "Fable" } } }
+          ]
+        }
+        """
+        let http = StubHTTPClient(responses: [.json(json)])
+        let reader = ClientStubKeychainReader(data: Data(ClaudeClientFixture.credential.utf8))
+
+        let partial = await ClaudeUsageClient(keychainReader: reader, ownStore: emptyClaudeOAuthStore(), tokenStore: makeTempTokenStore(), httpClient: http)
+            .fetch(now: ClaudeClientFixture.now)
+
+        let usage = try #require(partial.usage)
+        #expect(usage.windows.map(\.label) == ["5-hour", "Weekly · All Models", "Weekly · Fable"])
+        #expect(usage.windows.map(\.usedPercent) == [5, 42, 21])
+    }
+
+    @Test func weeklyScopedEmptyDisplayNameFallsBackToModelID() async throws {
+        // display_name is empty → the label falls back to the model id (not "Weekly · ").
+        let json = """
+        {
+          "limits": [
+            { "kind": "session", "group": "session", "percent": 2, "resets_at": "2026-07-18T00:40:00Z" },
+            { "kind": "weekly_scoped", "group": "weekly", "percent": 9, "resets_at": "2026-07-20T09:00:00Z", "scope": { "model": { "id": "claude-opus-9", "display_name": "" } } }
+          ]
+        }
+        """
+        let http = StubHTTPClient(responses: [.json(json)])
+        let reader = ClientStubKeychainReader(data: Data(ClaudeClientFixture.credential.utf8))
+
+        let partial = await ClaudeUsageClient(keychainReader: reader, ownStore: emptyClaudeOAuthStore(), tokenStore: makeTempTokenStore(), httpClient: http)
+            .fetch(now: ClaudeClientFixture.now)
+
+        let usage = try #require(partial.usage)
+        #expect(usage.windows.map(\.label) == ["5-hour", "Weekly · claude-opus-9"])
+    }
+
+    @Test func weeklyScopedWithNullModelUsesScopedLabel() async throws {
+        let json = """
+        {
+          "limits": [
+            { "kind": "session", "group": "session", "percent": 3, "resets_at": "2026-07-18T00:40:00Z" },
+            { "kind": "weekly_scoped", "group": "weekly", "percent": 8, "resets_at": "2026-07-20T09:00:00Z", "scope": { "model": null } }
+          ]
+        }
+        """
+        let http = StubHTTPClient(responses: [.json(json)])
+        let reader = ClientStubKeychainReader(data: Data(ClaudeClientFixture.credential.utf8))
+
+        let partial = await ClaudeUsageClient(keychainReader: reader, ownStore: emptyClaudeOAuthStore(), tokenStore: makeTempTokenStore(), httpClient: http)
+            .fetch(now: ClaudeClientFixture.now)
+
+        let usage = try #require(partial.usage)
+        #expect(usage.windows.map(\.label) == ["5-hour", "Weekly · Scoped"])
+        #expect(usage.windows.map(\.usedPercent) == [3, 8])
     }
 
     @Test func non200BecomesUsageError() async {
