@@ -30,9 +30,13 @@ public struct ClaudeSignIn: Sendable {
         self.timeout = timeout
     }
 
-    /// One sign-in attempt. The verifier is the PKCE secret AND the `state` value; it never
-    /// leaves the machine except as its SHA-256 hash, and the code Anthropic hands back must
-    /// echo it — that echo is what proves the pasted code belongs to THIS attempt.
+    /// One sign-in attempt. The verifier is the PKCE secret AND the `state` value, mirroring
+    /// the CLI's flow: the authorize URL carries the verifier's SHA-256 as `code_challenge`
+    /// and the verifier ITSELF as `state`, so the raw value does reach the browser's address
+    /// bar and Anthropic's logs. That costs PKCE some of its value against an observer of the
+    /// authorize request, who would still also need the one-time code — which Anthropic shows
+    /// only on the approving user's screen. The echo back in `state` is what proves a pasted
+    /// code belongs to THIS attempt.
     public struct Session: Sendable, Equatable {
         public let verifier: String
         public let url: URL
@@ -68,26 +72,31 @@ public struct ClaudeSignIn: Sendable {
         return (code, state)
     }
 
-    /// True for a string that looks like an authorization code Anthropic would display, so the
-    /// sign-in pane can pick one up from the clipboard without the user typing anything.
-    /// Deliberately strict: unrelated clipboard contents must NOT be mistaken for a code and
-    /// spent against the endpoint.
-    public static func looksLikeCode(_ candidate: String) -> Bool {
+    /// True for a string that is a code from THIS attempt, so the sign-in pane can pick one up
+    /// off the clipboard without the user typing anything.
+    ///
+    /// The decisive test is that the string's state half equals `expectedState` — the attempt's
+    /// 256-bit verifier. Shape alone is far too weak: "issue-1234#comment-5678" satisfies every
+    /// structural rule. Matching the verifier means an unrelated copy can never be mistaken for
+    /// a code, so the watcher neither spends junk against the endpoint nor flashes a spurious
+    /// "different sign-in attempt" error at the user.
+    public static func looksLikeCode(_ candidate: String, expectedState: String) -> Bool {
         let trimmed = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
         guard (16...512).contains(trimmed.count), trimmed.contains("#") else { return false }
-        guard let (code, state) = parse(pasted: trimmed), !state.isEmpty else { return false }
+        guard let (code, state) = parse(pasted: trimmed), state == expectedState else { return false }
         let allowed = CharacterSet(charactersIn:
             "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
-        return code.unicodeScalars.allSatisfy(allowed.contains)
-            && state.unicodeScalars.allSatisfy(allowed.contains)
-            && code.count >= 8
+        return code.count >= 8 && code.unicodeScalars.allSatisfy(allowed.contains)
     }
 
     /// Exchanges the pasted code for a token and returns it ready to store.
     ///
-    /// The returned `state` MUST equal the verifier this session generated. Anything else means
-    /// the code came from a different attempt (or was injected), and spending it would bind the
-    /// app to a token it cannot verify — so that case throws rather than proceeding.
+    /// A returned `state` that differs from this session's verifier means the code came from a
+    /// different attempt, so it throws rather than spending it. A code pasted with NO state at
+    /// all skips that check: the user typed or partially copied it, and the check is redundant
+    /// there anyway — PKCE is what binds the code to this app. The server verifies
+    /// `code_verifier` against the `code_challenge` registered when the code was minted, so a
+    /// code obtained for anyone else's authorize request cannot be redeemed here.
     public func complete(pasted: String, session: Session, now: Date = Date()) async throws -> ClaudeOAuthToken {
         guard let (code, state) = Self.parse(pasted: pasted) else {
             throw ClaudeSignInError.malformedCode

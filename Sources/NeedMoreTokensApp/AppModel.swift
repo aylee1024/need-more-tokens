@@ -219,6 +219,10 @@ final class AppModel {
     /// The in-flight attempt's PKCE secret. Held only for the duration of the sign-in, and
     /// cleared on finish/cancel so a stale verifier can never validate a later code.
     private var claudeSignInSession: ClaudeSignIn.Session?
+    /// Bumped whenever an attempt starts or ends. An exchange that outlives its attempt (the
+    /// user cancelled while it was in flight) still keeps the token it won — throwing away a
+    /// valid token would be worse — but must not write its result onto a pane that has moved on.
+    private var claudeSignInGeneration = 0
     private let claudeSignIn = ClaudeSignIn()
     private let claudeStore = ClaudeOAuthStore()
 
@@ -228,12 +232,17 @@ final class AppModel {
         entries.first { $0.provider == .claude }?.requiresSignIn ?? false
     }
 
+    /// The `state` value the in-flight attempt expects a pasted code to echo, so the pane can
+    /// recognize a code for THIS attempt on the clipboard and ignore everything else.
+    var claudeSignInState: String? { claudeSignInSession?.verifier }
+
     /// Opens Anthropic's approval page and waits for the code. Anthropic shows the code on
     /// its own page rather than redirecting to the app, so the code comes back by copy —
     /// which the sign-in pane picks up off the clipboard so there is nothing to type.
     func beginClaudeSignIn() {
         let session = ClaudeSignIn.begin()
         claudeSignInSession = session
+        claudeSignInGeneration &+= 1
         claudeSignInPhase = .waitingForCode
         NSWorkspace.shared.open(session.url)
     }
@@ -254,13 +263,16 @@ final class AppModel {
             return
         }
         claudeSignInPhase = .exchanging
-        await performClaudeExchange(pasted: pasted, session: session)
+        await performClaudeExchange(pasted: pasted, session: session, generation: claudeSignInGeneration)
     }
 
-    private func performClaudeExchange(pasted: String, session: ClaudeSignIn.Session) async {
+    private func performClaudeExchange(pasted: String, session: ClaudeSignIn.Session, generation: Int) async {
         do {
             let token = try await claudeSignIn.complete(pasted: pasted, session: session)
             claudeStore.save(token)
+            // Keep the token even if the user walked away mid-exchange (it is valid and the
+            // card wants it), but stop driving a pane that has moved on.
+            guard generation == claudeSignInGeneration else { return }
             // The saved token is only real once it round-trips from disk — a failed write
             // would otherwise show success and leave the card broken on the next cycle.
             guard claudeStore.load()?.refreshToken == token.refreshToken else {
@@ -268,21 +280,34 @@ final class AppModel {
                 return
             }
             claudeSignInSession = nil
-            claudeSignInPhase = .succeeded
             log.info("claude sign-in: token stored")
+            // Refresh BEFORE claiming success, so "Claude is signed in" means the card actually
+            // came back rather than only that a file was written. If the brand-new token is
+            // somehow rejected, the card still reports it needs signing in — say so instead.
             await refresh()
+            guard generation == claudeSignInGeneration else { return }
+            guard !claudeNeedsSignIn else {
+                claudeSignInPhase = .failed("Signed in, but Claude still rejected the token. Try again.")
+                return
+            }
+            claudeSignInPhase = .succeeded
         } catch let error as ClaudeSignInError {
+            guard generation == claudeSignInGeneration else { return }
             claudeSignInPhase = .failed(error.description)
             log.error("claude sign-in: failed")
         } catch {
+            guard generation == claudeSignInGeneration else { return }
             claudeSignInPhase = .failed("Sign-in failed (\(type(of: error))). Try again.")
             log.error("claude sign-in: failed \(String(describing: type(of: error)), privacy: .public)")
         }
     }
 
-    /// Leaves the sign-in flow, dropping the PKCE secret whether it succeeded or not.
+    /// Leaves the sign-in flow, dropping the PKCE secret whether it succeeded or not. Bumping
+    /// the generation retires any exchange still in flight, so a cancelled attempt cannot
+    /// later stamp its result onto the model.
     func finishClaudeSignIn() {
         claudeSignInSession = nil
+        claudeSignInGeneration &+= 1
         claudeSignInPhase = .idle
     }
 
