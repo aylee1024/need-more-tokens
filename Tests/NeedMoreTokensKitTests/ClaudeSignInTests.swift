@@ -69,12 +69,39 @@ struct ClaudeSignInTests {
 
         #expect(!ClaudeSignIn.looksLikeCode("", expectedState: state))
         #expect(!ClaudeSignIn.looksLikeCode("hello world", expectedState: state))
-        #expect(!ClaudeSignIn.looksLikeCode("abc123", expectedState: state))            // no state
-        #expect(!ClaudeSignIn.looksLikeCode("short#\(state)", expectedState: state))    // code too short
-        #expect(!ClaudeSignIn.looksLikeCode("https://example.com/x#\(state)", expectedState: state))
-        #expect(!ClaudeSignIn.looksLikeCode("code with spaces#\(state)", expectedState: state))
-        #expect(!ClaudeSignIn.looksLikeCode(String(repeating: "a", count: 600) + "#\(state)",
+        #expect(!ClaudeSignIn.looksLikeCode("abc123", expectedState: state))         // no state at all
+        #expect(!ClaudeSignIn.looksLikeCode("#\(state)", expectedState: state))      // no code half
+        #expect(!ClaudeSignIn.looksLikeCode("code#wrong-state", expectedState: state))
+        #expect(!ClaudeSignIn.looksLikeCode(String(repeating: "a", count: 5000) + "#\(state)",
                                             expectedState: state))
+        // An empty expected state would make every bare-ish string match — never accept.
+        #expect(!ClaudeSignIn.looksLikeCode("code#", expectedState: ""))
+    }
+
+    /// The filter must not be STRICTER than the exchange. Anthropic's real code format is not
+    /// verified here, so a shape rule can only silently reject a genuine code while the pane
+    /// still promises to pick it up. (Panel finding opus-skeptic-r2-2, reproduced: a '+' in the
+    /// code was rejected by the watcher yet exchanged fine when pasted by hand.)
+    @Test func anythingTheWatcherAcceptsTheExchangeAlsoAccepts() async throws {
+        let verifier = "v-probe"
+        let session = ClaudeSignIn.begin(verifier: verifier)
+        // Deliberately outside base64url: '+' and '=' , and shorter than any minimum we'd guess.
+        for code in ["abc+def12345", "a=b/c", "sh0rt", String(repeating: "z", count: 300)] {
+            let candidate = "\(code)#\(verifier)"
+            #expect(ClaudeSignIn.looksLikeCode(candidate, expectedState: verifier),
+                    "watcher rejected a code the exchange accepts: \(code)")
+
+            let http = StubHTTPClient(responses: [
+                .json(#"{"access_token":"a","refresh_token":"r","expires_in":100}"#),
+                .json(#"{}"#, status: 500),
+            ])
+            let token = try await ClaudeSignIn(httpClient: http)
+                .complete(pasted: candidate, session: session, now: now)
+            #expect(token.accessToken == "a")
+            let body = try #require(await http.recordedRequests().first?.body)
+            let fields = try #require(try JSONSerialization.jsonObject(with: body) as? [String: String])
+            #expect(fields["code"] == code)     // the code half reaches the endpoint intact
+        }
     }
 
     /// Shape alone is far too weak a filter — ordinary text satisfies every structural rule.
@@ -86,6 +113,7 @@ struct ClaudeSignInTests {
         // Real strings a user might plausibly have on the clipboard, all code-SHAPED.
         #expect(!ClaudeSignIn.looksLikeCode("issue-1234#comment-5678", expectedState: verifier))
         #expect(!ClaudeSignIn.looksLikeCode("some_file.name~v2#section-3.1", expectedState: verifier))
+        #expect(!ClaudeSignIn.looksLikeCode("https://example.com/page#anchor", expectedState: verifier))
         // A genuine code from a DIFFERENT attempt must not be picked up either.
         #expect(!ClaudeSignIn.looksLikeCode("aBcD1234efgh5678#\(ClaudeSignIn.randomVerifier())",
                                             expectedState: verifier))

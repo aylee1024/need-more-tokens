@@ -270,26 +270,25 @@ final class AppModel {
         do {
             let token = try await claudeSignIn.complete(pasted: pasted, session: session)
             claudeStore.save(token)
-            // Keep the token even if the user walked away mid-exchange (it is valid and the
-            // card wants it), but stop driving a pane that has moved on.
-            guard generation == claudeSignInGeneration else { return }
             // The saved token is only real once it round-trips from disk — a failed write
             // would otherwise show success and leave the card broken on the next cycle.
-            guard claudeStore.load()?.refreshToken == token.refreshToken else {
+            let stored = claudeStore.load()?.refreshToken == token.refreshToken
+            if stored {
+                log.info("claude sign-in: token stored")
+                // Unconditional, BEFORE the generation check: a token won by an attempt the
+                // user has since cancelled is still valid, and the card should use it now
+                // rather than wait out a refresh cycle.
+                await refresh()
+            }
+            // Past here we only drive the pane, so an attempt that has been superseded or
+            // cancelled stops — it must not stamp its result onto a pane that moved on.
+            guard generation == claudeSignInGeneration else { return }
+            guard stored else {
+                // Session deliberately still live, so the user can retry the same code.
                 claudeSignInPhase = .failed("Couldn't save the token to ~/.config/needmoretokens.")
                 return
             }
             claudeSignInSession = nil
-            log.info("claude sign-in: token stored")
-            // Refresh BEFORE claiming success, so "Claude is signed in" means the card actually
-            // came back rather than only that a file was written. If the brand-new token is
-            // somehow rejected, the card still reports it needs signing in — say so instead.
-            await refresh()
-            guard generation == claudeSignInGeneration else { return }
-            guard !claudeNeedsSignIn else {
-                claudeSignInPhase = .failed("Signed in, but Claude still rejected the token. Try again.")
-                return
-            }
             claudeSignInPhase = .succeeded
         } catch let error as ClaudeSignInError {
             guard generation == claudeSignInGeneration else { return }

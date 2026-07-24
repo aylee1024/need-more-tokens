@@ -75,18 +75,22 @@ public struct ClaudeSignIn: Sendable {
     /// True for a string that is a code from THIS attempt, so the sign-in pane can pick one up
     /// off the clipboard without the user typing anything.
     ///
-    /// The decisive test is that the string's state half equals `expectedState` — the attempt's
-    /// 256-bit verifier. Shape alone is far too weak: "issue-1234#comment-5678" satisfies every
-    /// structural rule. Matching the verifier means an unrelated copy can never be mistaken for
-    /// a code, so the watcher neither spends junk against the endpoint nor flashes a spurious
-    /// "different sign-in attempt" error at the user.
+    /// The ONLY real test is that the string's state half equals `expectedState` — this
+    /// attempt's 256-bit verifier, which nothing but its own approval page can carry. Shape is
+    /// no test at all: "issue-1234#comment-5678" satisfies every structural rule anyone would
+    /// write.
+    ///
+    /// So there are deliberately no charset or minimum-length rules here. Once the state
+    /// matches, a stricter filter can only do harm — it cannot exclude junk the state match
+    /// would admit, but it CAN reject a genuine code whose format we have not verified,
+    /// silently, while the pane still promises to pick the code up. The invariant that matters
+    /// is that anything this accepts, `complete` will also accept.
     public static func looksLikeCode(_ candidate: String, expectedState: String) -> Bool {
+        guard !expectedState.isEmpty else { return false }
         let trimmed = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard (16...512).contains(trimmed.count), trimmed.contains("#") else { return false }
-        guard let (code, state) = parse(pasted: trimmed), state == expectedState else { return false }
-        let allowed = CharacterSet(charactersIn:
-            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
-        return code.count >= 8 && code.unicodeScalars.allSatisfy(allowed.contains)
+        guard trimmed.count <= 4096, trimmed.contains("#") else { return false }
+        guard let (code, state) = parse(pasted: trimmed) else { return false }
+        return state == expectedState && !code.isEmpty
     }
 
     /// Exchanges the pasted code for a token and returns it ready to store.

@@ -118,7 +118,7 @@ struct ClaudeSignInPane: View {
                 Text("Claude is signed in")
                     .font(Theme.font(.headline, scale: uiScale, weight: .semibold))
             }
-            Text("The card is live again. NMT keeps the token fresh on its own; Anthropic caps how long a sign-in lasts, so you'll do this again in about a month.")
+            Text("The token is stored and the card is refreshing. NMT keeps it fresh on its own; Anthropic caps how long a sign-in lasts, so you'll do this again in about a month.")
                 .font(Theme.font(.caption, scale: uiScale))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
