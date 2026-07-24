@@ -16,8 +16,10 @@ struct ClaudeSignInPane: View {
     @Environment(\.uiScale) private var uiScale
 
     @State private var pasted = ""
-    /// Pasteboard generation we've already looked at, so we react to a NEW copy only.
-    @State private var lastChangeCount = NSPasteboard.general.changeCount
+    /// Pasteboard generation already examined. Seeded below every real changeCount so the FIRST
+    /// poll reads what is already on the clipboard — safe now that a candidate must carry this
+    /// attempt's verifier, which nothing copied before the attempt existed can.
+    @State private var lastChangeCount = -1
     /// The last value we spent on an exchange, so a failure can't loop the watcher on it.
     @State private var lastSubmitted = ""
 
@@ -132,11 +134,12 @@ struct ClaudeSignInPane: View {
     /// unrelated copy must never be spent against the endpoint, and each value is tried once.
     private func pollClipboard() {
         guard model.claudeSignInPhase == .waitingForCode || isFailed else { return }
+        guard let expectedState = model.claudeSignInState else { return }
         let board = NSPasteboard.general
         guard board.changeCount != lastChangeCount else { return }
         lastChangeCount = board.changeCount
         guard let copied = board.string(forType: .string),
-              ClaudeSignIn.looksLikeCode(copied) else { return }
+              ClaudeSignIn.looksLikeCode(copied, expectedState: expectedState) else { return }
         let trimmed = copied.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed != lastSubmitted else { return }
         pasted = trimmed
@@ -158,7 +161,7 @@ struct ClaudeSignInPane: View {
     private func restart() {
         pasted = ""
         lastSubmitted = ""
-        lastChangeCount = NSPasteboard.general.changeCount
+        lastChangeCount = -1        // re-examine the clipboard against the NEW attempt's state
         model.beginClaudeSignIn()
     }
 

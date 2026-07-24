@@ -61,18 +61,36 @@ struct ClaudeSignInTests {
         #expect(ClaudeSignIn.parse(pasted: "#only-state") == nil)
     }
 
-    /// The clipboard watcher spends whatever it accepts against the endpoint, so anything
-    /// that isn't unmistakably a code must be ignored.
+    /// The clipboard watcher spends whatever it accepts against the endpoint, so anything that
+    /// isn't a code from THIS attempt must be ignored.
     @Test func clipboardFilterAcceptsOnlyCodeShapedStrings() {
-        #expect(ClaudeSignIn.looksLikeCode("aBcD1234efgh5678#Zm9vYmFyYmF6cXV4"))
+        let state = "Zm9vYmFyYmF6cXV4"
+        #expect(ClaudeSignIn.looksLikeCode("aBcD1234efgh5678#\(state)", expectedState: state))
 
-        #expect(!ClaudeSignIn.looksLikeCode(""))
-        #expect(!ClaudeSignIn.looksLikeCode("hello world"))
-        #expect(!ClaudeSignIn.looksLikeCode("abc123"))                      // no state
-        #expect(!ClaudeSignIn.looksLikeCode("short#s"))                     // too short
-        #expect(!ClaudeSignIn.looksLikeCode("https://example.com/x#frag"))  // a URL, not a code
-        #expect(!ClaudeSignIn.looksLikeCode("code with spaces#state12345"))
-        #expect(!ClaudeSignIn.looksLikeCode(String(repeating: "a", count: 600) + "#state12345"))
+        #expect(!ClaudeSignIn.looksLikeCode("", expectedState: state))
+        #expect(!ClaudeSignIn.looksLikeCode("hello world", expectedState: state))
+        #expect(!ClaudeSignIn.looksLikeCode("abc123", expectedState: state))            // no state
+        #expect(!ClaudeSignIn.looksLikeCode("short#\(state)", expectedState: state))    // code too short
+        #expect(!ClaudeSignIn.looksLikeCode("https://example.com/x#\(state)", expectedState: state))
+        #expect(!ClaudeSignIn.looksLikeCode("code with spaces#\(state)", expectedState: state))
+        #expect(!ClaudeSignIn.looksLikeCode(String(repeating: "a", count: 600) + "#\(state)",
+                                            expectedState: state))
+    }
+
+    /// Shape alone is far too weak a filter — ordinary text satisfies every structural rule.
+    /// Requiring the attempt's own 256-bit verifier is what makes the watcher safe to point at
+    /// the user's clipboard. (Panel finding opus-skeptic-2, reproduced against the old filter.)
+    @Test func clipboardFilterRejectsCodeShapedTextThatIsNotThisAttempt() {
+        let verifier = ClaudeSignIn.randomVerifier()
+
+        // Real strings a user might plausibly have on the clipboard, all code-SHAPED.
+        #expect(!ClaudeSignIn.looksLikeCode("issue-1234#comment-5678", expectedState: verifier))
+        #expect(!ClaudeSignIn.looksLikeCode("some_file.name~v2#section-3.1", expectedState: verifier))
+        // A genuine code from a DIFFERENT attempt must not be picked up either.
+        #expect(!ClaudeSignIn.looksLikeCode("aBcD1234efgh5678#\(ClaudeSignIn.randomVerifier())",
+                                            expectedState: verifier))
+        // The matching one still passes, so the filter isn't vacuously rejecting everything.
+        #expect(ClaudeSignIn.looksLikeCode("aBcD1234efgh5678#\(verifier)", expectedState: verifier))
     }
 
     // MARK: - Exchange
@@ -114,6 +132,28 @@ struct ClaudeSignInTests {
                 .complete(pasted: "code#someone-elses", session: session, now: now)
         }
         #expect(await http.recordedRequests().isEmpty)   // never hit the endpoint
+    }
+
+    /// A code pasted with no state at all skips the state check by design (the user typed or
+    /// partially copied it, and PKCE is what binds the code). Pinned so the behaviour is a
+    /// deliberate, visible decision rather than an accident of the guard's short-circuit.
+    /// (Panel finding opus-skeptic-3.)
+    @Test func bareCodeWithNoStateIsExchangedRatherThanRejected() async throws {
+        let session = ClaudeSignIn.begin(verifier: "mine")
+        let http = StubHTTPClient(responses: [
+            .json(#"{"access_token":"a","refresh_token":"r","expires_in":100}"#),
+            .json(#"{}"#, status: 500),
+        ])
+
+        let token = try await ClaudeSignIn(httpClient: http)
+            .complete(pasted: "bare-code-no-hash", session: session, now: now)
+
+        #expect(token.accessToken == "a")
+        // It still sends OUR verifier, so a code minted for anyone else's challenge is
+        // rejected by the server — that, not the state check, is the real binding.
+        let body = try #require(await http.recordedRequests().first?.body)
+        let fields = try #require(try JSONSerialization.jsonObject(with: body) as? [String: String])
+        #expect(fields["code_verifier"] == "mine")
     }
 
     @Test func rejectedCodeSurfacesAPlainExplanation() async throws {
