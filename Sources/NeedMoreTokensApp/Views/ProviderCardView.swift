@@ -10,12 +10,15 @@ struct ProviderCardView: View {
     let entry: WidgetSnapshot.Entry
     let resetCount: Int?
     let onUseReset: (() -> Void)?
+    let onSignIn: (() -> Void)?
     @Environment(\.uiScale) private var uiScale
 
-    init(entry: WidgetSnapshot.Entry, resetCount: Int? = nil, onUseReset: (() -> Void)? = nil) {
+    init(entry: WidgetSnapshot.Entry, resetCount: Int? = nil, onUseReset: (() -> Void)? = nil,
+         onSignIn: (() -> Void)? = nil) {
         self.entry = entry
         self.resetCount = resetCount
         self.onUseReset = onUseReset
+        self.onSignIn = onSignIn
     }
 
     var body: some View {
@@ -45,6 +48,7 @@ struct ProviderCardView: View {
             }
 
             planAndCredits
+            signInButton
             resetButton
         }
         .padding(scaled(14))
@@ -124,6 +128,26 @@ struct ProviderCardView: View {
                 .font(Theme.font(.caption2, scale: uiScale))
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
+        }
+    }
+
+    /// Shown only when the fetch reported this exact failure — a sign-in that the user can
+    /// complete right here. Anthropic caps how long a Claude grant lasts, so this is a routine
+    /// event, and the fix belongs on the card that broke rather than in a README.
+    @ViewBuilder private var signInButton: some View {
+        if entry.requiresSignIn, let onSignIn {
+            Button {
+                onSignIn()
+            } label: {
+                HStack(spacing: scaled(8)) {
+                    Text("Sign in to \(entry.provider.displayName)")
+                    Spacer(minLength: scaled(8))
+                    Image(systemName: "arrow.up.forward.app")
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .buttonStyle(.glass)
+            .font(Theme.font(.callout, scale: uiScale, weight: .medium))
         }
     }
 

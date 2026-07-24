@@ -54,12 +54,15 @@ public struct NativeProviderDataSource: ProviderDataSource {
         var usages: [Provider: ProviderUsage] = [:]
         var usageErrors: [Provider: String] = [:]
         var costs: [Provider: ProviderCost] = [:]
+        var needSignIn: Set<Provider> = []
         for partial in partials {
             if let usage = partial.usage { usages[partial.provider] = usage }
             if let error = partial.usageError { usageErrors[partial.provider] = error }
+            if partial.requiresSignIn { needSignIn.insert(partial.provider) }
             costs[partial.provider] = partial.cost
         }
-        return ProviderFetch(usages: usages, usageErrors: usageErrors, costs: costs, generatedAt: now)
+        return ProviderFetch(usages: usages, usageErrors: usageErrors, costs: costs, generatedAt: now,
+                             providersNeedingSignIn: needSignIn)
     }
 
     /// Races the client fetch against a deadline. A client's credential read (e.g. a

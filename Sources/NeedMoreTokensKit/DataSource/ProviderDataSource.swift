@@ -5,15 +5,20 @@ public struct ProviderFetch: Sendable, Equatable {
     public var usageErrors: [Provider: String]
     public var costs: [Provider: ProviderCost]
     public var generatedAt: Date
+    /// Providers whose failure is "sign in again", carried typed so the UI offers the button
+    /// only where it helps. Defaulted so existing callers and tests are unaffected.
+    public var providersNeedingSignIn: Set<Provider>
 
     public init(usages: [Provider: ProviderUsage],
                 usageErrors: [Provider: String],
                 costs: [Provider: ProviderCost],
-                generatedAt: Date) {
+                generatedAt: Date,
+                providersNeedingSignIn: Set<Provider> = []) {
         self.usages = usages
         self.usageErrors = usageErrors
         self.costs = costs
         self.generatedAt = generatedAt
+        self.providersNeedingSignIn = providersNeedingSignIn
     }
 
     public func usage(for provider: Provider) -> ProviderUsage? { usages[provider] }

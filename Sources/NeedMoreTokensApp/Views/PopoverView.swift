@@ -13,6 +13,7 @@ struct PopoverView: View {
     @AppStorage(UISize.defaultsKey) private var uiSizeStep = UISize.defaultStep
     @State private var showingSettings = false
     @State private var confirmingCodexReset = false
+    @State private var signingInToClaude = false
 
     private var step: Int { UISize.clampedStep(uiSizeStep) }
     private var uiScale: CGFloat { UISize.scale(for: step) }
@@ -21,12 +22,18 @@ struct PopoverView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if confirmingCodexReset {
+            if signingInToClaude {
+                paneHeader("Sign in to Claude") { model.finishClaudeSignIn(); signingInToClaude = false }
+                ClaudeSignInPane(model: model, onDone: { signingInToClaude = false })
+            } else if confirmingCodexReset {
                 confirmHeader
                 ConfirmResetPane(model: model, onDone: { confirmingCodexReset = false })
             } else if showingSettings {
                 settingsHeader
-                SettingsPaneView(model: model)
+                SettingsPaneView(model: model, onSignInToClaude: {
+                    showingSettings = false
+                    startClaudeSignIn()
+                })
             } else {
                 header
                 content
@@ -37,6 +44,24 @@ struct PopoverView: View {
         .frame(minWidth: panelMinSize.width, idealWidth: panelIdealSize.width, maxWidth: .infinity,
                minHeight: panelMinSize.height, maxHeight: .infinity, alignment: .top)
         .environment(\.uiScale, uiScale)
+    }
+
+    /// A back-arrow header for a pushed pane, matching the settings/reset panes.
+    private func paneHeader(_ title: String, onBack: @escaping () -> Void) -> some View {
+        HStack(spacing: scaled(8)) {
+            Button(action: onBack) {
+                Image(systemName: "chevron.left")
+                    .font(Theme.font(.subheadline, scale: uiScale, weight: .semibold))
+            }
+            .buttonStyle(.borderless)
+            .help("Back")
+            Text(title)
+                .font(Theme.font(.subheadline, scale: uiScale, weight: .semibold))
+            Spacer()
+        }
+        .padding(.horizontal, scaled(14))
+        .padding(.top, scaled(12))
+        .padding(.bottom, scaled(8))
     }
 
     private var confirmHeader: some View {
@@ -143,7 +168,8 @@ struct PopoverView: View {
                             ProviderCardView(
                                 entry: entry,
                                 resetCount: entry.provider == .codex ? entry.resetCount : nil,
-                                onUseReset: codexResetAction(for: entry)
+                                onUseReset: codexResetAction(for: entry),
+                                onSignIn: signInAction(for: entry)
                             )
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .glassEffect(in: .rect(cornerRadius: scaled(16)))
@@ -216,6 +242,18 @@ struct PopoverView: View {
             .disabled(step >= UISize.maxStep)
         }
         .help("Make the whole UI bigger or smaller")
+    }
+
+    /// Only Claude has an in-app sign-in (the others' tokens come from their own CLIs), so a
+    /// different provider reporting `requiresSignIn` gets no button rather than a dead one.
+    private func signInAction(for entry: WidgetSnapshot.Entry) -> (() -> Void)? {
+        guard entry.provider == .claude, entry.requiresSignIn else { return nil }
+        return { startClaudeSignIn() }
+    }
+
+    private func startClaudeSignIn() {
+        signingInToClaude = true
+        model.beginClaudeSignIn()
     }
 
     private func codexResetAction(for entry: WidgetSnapshot.Entry) -> (() -> Void)? {

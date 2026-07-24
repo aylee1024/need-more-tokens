@@ -13,6 +13,18 @@ enum CodexResetMode: Equatable {
     case deepLink(URL)
 }
 
+/// Where the in-app Claude sign-in has got to. Anthropic caps the grant's lifetime and
+/// rotation does not extend it, so this runs periodically on a healthy install — it is a
+/// normal flow, not an error path, and it lives in the popover rather than a terminal.
+enum ClaudeSignInPhase: Equatable {
+    case idle
+    /// Browser is open on Anthropic's approval page; we're waiting for the code.
+    case waitingForCode
+    case exchanging
+    case failed(String)
+    case succeeded
+}
+
 /// Owns the refresh loop and the latest snapshot the UI renders. Lives on the main
 /// actor; native provider reads run inside `NativeProviderDataSource`.
 @MainActor
@@ -199,6 +211,79 @@ final class AppModel {
         // do NOT reloadAllTimelines() here: WidgetKit budgets reloads, and the periodic
         // refresh already reloads within the cycle — re-pricing per edit must not spend it.
         WidgetSnapshotStore.save(snap)
+    }
+
+    // MARK: - Claude sign-in
+
+    private(set) var claudeSignInPhase: ClaudeSignInPhase = .idle
+    /// The in-flight attempt's PKCE secret. Held only for the duration of the sign-in, and
+    /// cleared on finish/cancel so a stale verifier can never validate a later code.
+    private var claudeSignInSession: ClaudeSignIn.Session?
+    private let claudeSignIn = ClaudeSignIn()
+    private let claudeStore = ClaudeOAuthStore()
+
+    /// True when the last refresh said Claude specifically needs a new sign-in — the typed
+    /// flag from the fetch, not a guess parsed out of the error text.
+    var claudeNeedsSignIn: Bool {
+        entries.first { $0.provider == .claude }?.requiresSignIn ?? false
+    }
+
+    /// Opens Anthropic's approval page and waits for the code. Anthropic shows the code on
+    /// its own page rather than redirecting to the app, so the code comes back by copy —
+    /// which the sign-in pane picks up off the clipboard so there is nothing to type.
+    func beginClaudeSignIn() {
+        let session = ClaudeSignIn.begin()
+        claudeSignInSession = session
+        claudeSignInPhase = .waitingForCode
+        NSWorkspace.shared.open(session.url)
+    }
+
+    /// Re-opens the approval page for the SAME attempt (the user closed the tab, say).
+    /// Reusing the session matters: a new verifier would invalidate a code already on screen.
+    func reopenClaudeSignInPage() {
+        guard let session = claudeSignInSession else { return beginClaudeSignIn() }
+        NSWorkspace.shared.open(session.url)
+    }
+
+    /// Exchanges the code for a token, stores it, and refreshes so the card comes straight
+    /// back. Returns to `.idle` only via `finishClaudeSignIn`, so the pane can show the result.
+    func submitClaudeSignInCode(_ pasted: String) async {
+        guard claudeSignInPhase != .exchanging else { return }   // clipboard watcher + button can race
+        guard let session = claudeSignInSession else {
+            claudeSignInPhase = .failed("Sign-in wasn't started. Try again.")
+            return
+        }
+        claudeSignInPhase = .exchanging
+        await performClaudeExchange(pasted: pasted, session: session)
+    }
+
+    private func performClaudeExchange(pasted: String, session: ClaudeSignIn.Session) async {
+        do {
+            let token = try await claudeSignIn.complete(pasted: pasted, session: session)
+            claudeStore.save(token)
+            // The saved token is only real once it round-trips from disk — a failed write
+            // would otherwise show success and leave the card broken on the next cycle.
+            guard claudeStore.load()?.refreshToken == token.refreshToken else {
+                claudeSignInPhase = .failed("Couldn't save the token to ~/.config/needmoretokens.")
+                return
+            }
+            claudeSignInSession = nil
+            claudeSignInPhase = .succeeded
+            log.info("claude sign-in: token stored")
+            await refresh()
+        } catch let error as ClaudeSignInError {
+            claudeSignInPhase = .failed(error.description)
+            log.error("claude sign-in: failed")
+        } catch {
+            claudeSignInPhase = .failed("Sign-in failed (\(type(of: error))). Try again.")
+            log.error("claude sign-in: failed \(String(describing: type(of: error)), privacy: .public)")
+        }
+    }
+
+    /// Leaves the sign-in flow, dropping the PKCE secret whether it succeeded or not.
+    func finishClaudeSignIn() {
+        claudeSignInSession = nil
+        claudeSignInPhase = .idle
     }
 
     func openCodexResetUI() {

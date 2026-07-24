@@ -6,11 +6,21 @@ import NeedMoreTokensKit
 /// Scales with the app-wide `\.uiScale` like the rest of the popover.
 struct SettingsPaneView: View {
     let model: AppModel
+    /// Pushes the Claude sign-in pane (the popover owns pane switching).
+    let onSignInToClaude: () -> Void
     @Environment(\.uiScale) private var uiScale
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: scaled(14)) {
+                Text("CLAUDE SIGN-IN")
+                    .font(Theme.font(.caption2, scale: uiScale, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+
+                ClaudeSignInRow(needsSignIn: model.claudeNeedsSignIn, action: onSignInToClaude)
+
+                Divider().opacity(0.25)
+
                 Text("KEYCHAIN ACCESS")
                     .font(Theme.font(.caption2, scale: uiScale, weight: .semibold))
                     .foregroundStyle(.tertiary)
@@ -58,6 +68,34 @@ struct SettingsPaneView: View {
             .padding(scaled(14))
         }
         .frame(maxHeight: .infinity)
+    }
+
+    private func scaled(_ base: CGFloat) -> CGFloat { UISize.metric(base, scale: uiScale) }
+}
+
+/// Claude's sign-in, reachable before it breaks. NMT holds its own Claude token so it never
+/// reads Claude Code's Keychain item; Anthropic caps that token's total lifetime and refreshing
+/// does not extend it, so signing in again is routine maintenance rather than a repair.
+private struct ClaudeSignInRow: View {
+    let needsSignIn: Bool
+    let action: () -> Void
+    @Environment(\.uiScale) private var uiScale
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: scaled(4)) {
+            Button(action: action) {
+                Text(needsSignIn ? "Sign in to Claude" : "Sign in to Claude again")
+                    .font(Theme.font(.callout, scale: uiScale, weight: .semibold))
+            }
+            .buttonStyle(.bordered)
+
+            Text(needsSignIn
+                 ? "Claude's sign-in has expired, so its card is dark. This takes about ten seconds in your browser."
+                 : "Claude is signed in. Anthropic limits how long a sign-in lasts (about a month), and NMT prompts you on the card when it runs out.")
+                .font(Theme.font(.caption2, scale: uiScale))
+                .foregroundStyle(.tertiary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     private func scaled(_ base: CGFloat) -> CGFloat { UISize.metric(base, scale: uiScale) }

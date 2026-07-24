@@ -29,3 +29,4 @@ xcuserdata/
 *.mobileprovision
 ExportOptions.plist
 DISCOVERY_FINDINGS.md
+__pycache__/
