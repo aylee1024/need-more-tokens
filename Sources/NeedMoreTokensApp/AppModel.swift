@@ -284,8 +284,10 @@ final class AppModel {
             // cancelled stops — it must not stamp its result onto a pane that moved on.
             guard generation == claudeSignInGeneration else { return }
             guard stored else {
-                // Session deliberately still live, so the user can retry the same code.
-                claudeSignInPhase = .failed("Couldn't save the token to ~/.config/needmoretokens.")
+                // The code is already spent by now — authorization codes are single-use — so
+                // re-pasting it cannot work. Send the user to a fresh attempt instead.
+                claudeSignInPhase = .failed(
+                    "Signed in, but couldn't write ~/.config/needmoretokens. Fix the folder's permissions, then Start again.")
                 return
             }
             claudeSignInSession = nil
