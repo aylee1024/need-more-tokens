@@ -418,7 +418,10 @@ struct ClaudeOwnTokenTests {
                                               tokenStore: makeTempTokenStore(), httpClient: http).fetch(now: now)
 
         #expect(partial.usage == nil)
-        #expect(partial.usageError?.contains("re-run") == true)  // clear re-auth, NOT a Keychain fallback
+        // The TYPED flag is what the card keys its Sign in button off — a message the UI would
+        // have to string-match is not enough.
+        #expect(partial.requiresSignIn == true)
+        #expect(partial.usageError?.contains("sign-in expired") == true)
         let reqs = await http.recordedRequests()
         #expect(reqs.count == 1)  // the failed refresh only — never hit usage, never read the Keychain
     }

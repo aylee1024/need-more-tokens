@@ -69,7 +69,8 @@ extension WidgetSnapshot {
                 state: state,
                 errorMessage: fetch.usageErrors[provider],
                 updatedAt: usage?.updatedAt,
-                resetCount: usage?.resetCount
+                resetCount: usage?.resetCount,
+                requiresSignIn: fetch.providersNeedingSignIn.contains(provider)
             )
         }
         return WidgetSnapshot(generatedAt: fetch.generatedAt, engineState: engineState, entries: entries)
