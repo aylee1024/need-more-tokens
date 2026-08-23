@@ -27,10 +27,13 @@ private enum GrokFixture {
 
 @Suite("Grok usage client")
 struct GrokUsageClientTests {
-    @Test func activeSubscriptionMapsToPlanCardWithRenewal() async throws {
+    @Test func activeSubscriptionMapsToPlanAndWeeklyWindow() async throws {
         let (loader, dir) = try GrokFixture.authFile(expiresAt: "2030-01-01T00:00:00Z")
         defer { try? FileManager.default.removeItem(at: dir) }
-        let http = StubHTTPClient(responses: [.json(GrokFixture.proActive)])
+        let http = StubHTTPClient(responses: [
+            .json(GrokFixture.weeklyCredits),
+            .json(GrokFixture.proActive),
+        ])
 
         let partial = await GrokUsageClient(credentialLoader: loader, tokenStore: makeTempTokenStore(), httpClient: http)
             .fetch(now: GrokFixture.now)
@@ -39,24 +42,32 @@ struct GrokUsageClientTests {
         #expect(partial.usageError == nil)
         #expect(usage.provider == .grok)
         #expect(usage.planName?.hasPrefix("Grok Pro · renews ") == true)
-        #expect(usage.windows.isEmpty)            // no usage-style window (would skew the menu bar)
+        #expect(usage.windows.count == 1)
+        #expect(usage.windows.first?.usedPercent == 2.0)
+        #expect(usage.windows.first?.label == "Weekly")
+        #expect(usage.tightestWindow?.remainingPercent == 98.0)
         #expect(partial.cost.isAvailable == false)
-        // One GET to the subscriptions endpoint, bearer auth.
         let reqs = await http.recordedRequests()
-        #expect(reqs.count == 1)
-        #expect(reqs.first?.url?.absoluteString == "https://grok.com/rest/subscriptions")
+        #expect(reqs.map(\.url?.absoluteString) == [
+            "https://cli-chat-proxy.grok.com/v1/billing?format=credits",
+            "https://grok.com/rest/subscriptions",
+        ])
         #expect(reqs.first?.headers["Authorization"] == "Bearer grok-jwt-token")
     }
 
     @Test func freeTrialShowsTrialEnds() async throws {
         let (loader, dir) = try GrokFixture.authFile(expiresAt: "2030-01-01T00:00:00Z")
         defer { try? FileManager.default.removeItem(at: dir) }
-        let http = StubHTTPClient(responses: [.json(GrokFixture.proTrial)])
+        let http = StubHTTPClient(responses: [
+            .json(GrokFixture.weeklyCredits),
+            .json(GrokFixture.proTrial),
+        ])
 
         let partial = await GrokUsageClient(credentialLoader: loader, tokenStore: makeTempTokenStore(), httpClient: http)
             .fetch(now: GrokFixture.now)
 
         #expect(partial.usage?.planName?.hasPrefix("Grok Pro · trial ends ") == true)
+        #expect(partial.usage?.windows.first?.usedPercent == 2.0)
     }
 
     @Test func expiredTokenSurfacesReauthWithoutHTTP() async throws {
@@ -72,21 +83,22 @@ struct GrokUsageClientTests {
         #expect(await http.recordedRequests().isEmpty)  // never hit the network with a dead token
     }
 
-    @Test func freshCacheServedWithoutTokenOrNetwork() async throws {
+    @Test func freshPlanCacheSkipsSubscriptionsButStillFetchesCredits() async throws {
+        let (loader, dir) = try GrokFixture.authFile(expiresAt: "2030-01-01T00:00:00Z")
+        defer { try? FileManager.default.removeItem(at: dir) }
         let tokenStore = makeTempTokenStore()
         tokenStore.save(GrokCacheSeed(planName: "Grok Pro · renews Jul 22", fetchedAt: GrokFixture.now), for: .grok)
-        // Loader points at a missing file and the HTTP stub has no responses — a cache hit
-        // must touch neither.
-        let loader = GrokCredentialLoader(url: FileManager.default.temporaryDirectory.appendingPathComponent("absent-\(UUID().uuidString).json"))
-        let http = StubHTTPClient(responses: [])
+        let http = StubHTTPClient(responses: [.json(GrokFixture.weeklyCredits)])
 
         let partial = await GrokUsageClient(credentialLoader: loader, tokenStore: tokenStore, httpClient: http)
-            .fetch(now: GrokFixture.now.addingTimeInterval(60))  // within the 6h TTL
+            .fetch(now: GrokFixture.now.addingTimeInterval(60))
 
         #expect(partial.usage?.planName == "Grok Pro · renews Jul 22")
-        // Served-from-cache must report the cache's real fetch time, not "now" (honesty).
-        #expect(partial.usage?.updatedAt == GrokFixture.now)
-        #expect(await http.recordedRequests().isEmpty)
+        #expect(partial.usage?.windows.first?.usedPercent == 2.0)
+        #expect(partial.usage?.updatedAt == GrokFixture.now.addingTimeInterval(60))
+        let reqs = await http.recordedRequests()
+        #expect(reqs.count == 1)
+        #expect(reqs.first?.url?.absoluteString == "https://cli-chat-proxy.grok.com/v1/billing?format=credits")
     }
 
     @Test func non200WithoutCacheSurfacesError() async throws {
@@ -146,5 +158,30 @@ struct GrokUsageClientTests {
 
     @Test func liveTimestampParses() {
         #expect(EngineMapper.parseDate("2026-08-30T18:05:22.677812+00:00") != nil)
+    }
+
+    @Test func billingHttpErrorSurfacesErrorNotPlanOnlyLiveCard() async throws {
+        let (loader, dir) = try GrokFixture.authFile(expiresAt: "2030-01-01T00:00:00Z")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let http = StubHTTPClient(responses: [.json(#"{}"#, status: 500)])
+
+        let partial = await GrokUsageClient(credentialLoader: loader, tokenStore: makeTempTokenStore(), httpClient: http)
+            .fetch(now: GrokFixture.now)
+
+        #expect(partial.usage == nil)
+        #expect(partial.usageError?.contains("HTTP 500") == true)
+    }
+
+    @Test func productBreakdownDoesNotBecomeExtraWindows() async throws {
+        let (loader, dir) = try GrokFixture.authFile(expiresAt: "2030-01-01T00:00:00Z")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let http = StubHTTPClient(responses: [
+            .json(GrokFixture.weeklyCredits),
+            .json(GrokFixture.proActive),
+        ])
+        let usage = try #require(await GrokUsageClient(credentialLoader: loader, tokenStore: makeTempTokenStore(), httpClient: http)
+            .fetch(now: GrokFixture.now).usage)
+        #expect(usage.extraWindows.isEmpty)
+        #expect(usage.windows.count == 1)
     }
 }
