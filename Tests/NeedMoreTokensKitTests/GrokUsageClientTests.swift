@@ -20,6 +20,9 @@ private enum GrokFixture {
 
     static let proTrial = #"{"subscriptions":[{"tier":"SUBSCRIPTION_TIER_GROK_PRO","status":"SUBSCRIPTION_STATUS_ACTIVE","billingPeriodEnd":"2026-06-25T17:29:26Z","activeOffer":{"type":"ACTIVE_OFFER_FREE_TRIAL","offerEnd":"2026-06-25T17:29:26Z"}}]}"#
     static let proActive = #"{"subscriptions":[{"tier":"SUBSCRIPTION_TIER_GROK_PRO","status":"SUBSCRIPTION_STATUS_ACTIVE","billingPeriodEnd":"2026-07-22T00:00:00Z"}]}"#
+    static let weeklyCredits = """
+    {"config":{"currentPeriod":{"type":"USAGE_PERIOD_TYPE_WEEKLY","start":"2026-08-23T18:05:22.677812+00:00","end":"2026-08-30T18:05:22.677812+00:00"},"creditUsagePercent":2.0,"onDemandCap":{"val":0},"onDemandUsed":{"val":0},"productUsage":[{"product":"GrokBuild","usagePercent":1.0},{"product":"GrokChat","usagePercent":1.0}],"prepaidBalance":{"val":0}}}
+    """
 }
 
 @Suite("Grok usage client")
@@ -115,5 +118,33 @@ struct GrokUsageClientTests {
         let numeric = try JSONDecoder().decode(RawGrokSubscriptions.self,
             from: Data(#"{"subscriptions":[{"tier":"SUBSCRIPTION_TIER_GROK_PRO","status":"SUBSCRIPTION_STATUS_ACTIVE","stripe":{"currentPeriodEnd":1782000000}}]}"#.utf8))
         #expect(GrokUsageClient.planName(from: numeric)?.hasPrefix("Grok Pro · renews ") == true)
+    }
+
+    @Test func weeklyCreditsMapToOneWeeklyWindow() throws {
+        let payload = try JSONDecoder().decode(RawGrokCreditsPayload.self, from: Data(GrokFixture.weeklyCredits.utf8))
+        let windows = GrokUsageClient.windows(from: payload, now: GrokFixture.now)
+        #expect(windows.count == 1)
+        let w = try #require(windows.first)
+        #expect(w.label == "Weekly")
+        #expect(w.period == .weekly)
+        #expect(w.windowMinutes == 10080)
+        #expect(w.usedPercent == 2.0)
+        #expect(w.resetsAt == EngineMapper.parseDate("2026-08-30T18:05:22.677812+00:00"))
+    }
+
+    @Test func omittedPercentWithPeriodIsZeroUsage() throws {
+        let json = #"{"config":{"currentPeriod":{"type":"USAGE_PERIOD_TYPE_WEEKLY","start":"2026-08-23T18:05:22Z","end":"2026-08-30T18:05:22Z"}}}"#
+        let payload = try JSONDecoder().decode(RawGrokCreditsPayload.self, from: Data(json.utf8))
+        let windows = GrokUsageClient.windows(from: payload, now: GrokFixture.now)
+        #expect(windows.first?.usedPercent == 0)
+    }
+
+    @Test func missingConfigYieldsNoWindows() throws {
+        let payload = try JSONDecoder().decode(RawGrokCreditsPayload.self, from: Data(#"{}"#.utf8))
+        #expect(GrokUsageClient.windows(from: payload, now: GrokFixture.now).isEmpty)
+    }
+
+    @Test func liveTimestampParses() {
+        #expect(EngineMapper.parseDate("2026-08-30T18:05:22.677812+00:00") != nil)
     }
 }

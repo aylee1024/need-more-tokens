@@ -136,38 +136,46 @@ public struct GrokUsageClient: Sendable {
         ProviderPartial(provider: .grok, usage: nil, usageError: message,
                         cost: .unavailable(.grok, reason: message))
     }
-}
 
-/// Decodes the fields NMT needs from `grok.com/rest/subscriptions`.
-struct RawGrokSubscriptions: Decodable {
-    let subscriptions: [Subscription]?
-
-    struct Subscription: Decodable {
-        let tier: String?
-        let status: String?
-        let billingPeriodEnd: String?
-        let activeOffer: ActiveOffer?
-        let stripe: Stripe?
-    }
-    struct ActiveOffer: Decodable {
-        let type: String?
-        let offerEnd: String?
-    }
-    struct Stripe: Decodable {
-        let currentPeriodEnd: String?
-        // grok.com returns this as an ISO8601 string (verified), but tolerate a Unix-epoch
-        // number too so a field-type drift degrades to nil rather than failing the decode.
-        init(from decoder: Decoder) throws {
-            let c = try decoder.container(keyedBy: CodingKeys.self)
-            if let s = try? c.decodeIfPresent(String.self, forKey: .currentPeriodEnd) {
-                currentPeriodEnd = s
-            } else if let n = try? c.decodeIfPresent(Double.self, forKey: .currentPeriodEnd) {
-                let f = ISO8601DateFormatter()
-                currentPeriodEnd = f.string(from: Date(timeIntervalSince1970: n))
-            } else {
-                currentPeriodEnd = nil
-            }
+    /// One window for the shared SuperGrok pool. `productUsage` is ignored: those percents
+    /// are a breakdown of this same pool, and promoting them to extra windows would make
+    /// `tightestWindow` pick a product slice instead of the real remaining quota.
+    static func windows(from payload: RawGrokCreditsPayload, now _: Date) -> [RateWindow] {
+        guard let config = payload.config else { return [] }
+        guard let period = config.currentPeriod,
+              let end = EngineMapper.parseDate(period.end) else { return [] }
+        let used: Double
+        if let percent = config.creditUsagePercent, percent.isFinite, percent >= 0 {
+            used = percent
+        } else {
+            used = 0
         }
-        private enum CodingKeys: String, CodingKey { case currentPeriodEnd }
+        let type = (period.type ?? "").uppercased()
+        let windowMinutes: Int
+        if let start = EngineMapper.parseDate(period.start) {
+            windowMinutes = max(1, Int((end.timeIntervalSince(start) / 60).rounded()))
+        } else if type.contains("MONTHLY") {
+            windowMinutes = 43_200
+        } else {
+            windowMinutes = 10_080
+        }
+        let label: String
+        if type.contains("WEEKLY") {
+            label = "Weekly"
+        } else if type.contains("MONTHLY") {
+            label = "Monthly"
+        } else {
+            label = RateWindow.Period(windowMinutes: windowMinutes).shortLabel
+        }
+        return [
+            RateWindow(
+                label: label,
+                period: RateWindow.Period(windowMinutes: windowMinutes),
+                windowMinutes: windowMinutes,
+                usedPercent: used,
+                resetsAt: end,
+                resetDescription: nil
+            )
+        ]
     }
 }
