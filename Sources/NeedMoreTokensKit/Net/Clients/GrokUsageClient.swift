@@ -1,17 +1,12 @@
 import Foundation
 
-/// Surfaces the user's xAI Grok subscription (tier + renewal/trial-end) as a card.
-///
-/// Why a plan card, not %-used windows: Grok (`grok-build`) and Composer (`grok-composer-2.5-fast`)
-/// share ONE Grok subscription. xAI DOES expose per-request/token rate-limit windows, but only as
-/// response headers on the quota-CONSUMING chat endpoint (`cli-chat-proxy.grok.com/v1/responses`) —
-/// there is no free poll (verified: `/v1/models` has no such headers, an invalid request 422s before
-/// the rate-limiter, the CLI doesn't cache the limits to disk, and the web `rate-limits` endpoint
-/// 403s OAuth tokens). Polling the chat endpoint would consume the very quota it measures. So NMT
-/// reads the FREE, quasi-static subscription (`grok.com/rest/subscriptions`) with the file token,
-/// shows the tier + renewal, and caches it so the card stays populated even after the ~6h token lapses.
+/// Grok Build and Composer share one SuperGrok weekly pool. This client reads that pool
+/// from `GET …/v1/billing?format=credits` (does not consume chat quota) and the plan/renewal
+/// line from `grok.com/rest/subscriptions`. The plan is cached for 6h because it is
+/// quasi-static; credits are fetched every refresh. NMT never writes `~/.grok/auth.json`.
 public struct GrokUsageClient: Sendable {
     private static let subscriptionsURL = URL(string: "https://grok.com/rest/subscriptions")!
+    private static let creditsURL = URL(string: "https://cli-chat-proxy.grok.com/v1/billing?format=credits")!
 
     private let credentialLoader: GrokCredentialLoader
     private let tokenStore: TokenStore
@@ -42,29 +37,54 @@ public struct GrokUsageClient: Sendable {
     }
 
     public func fetch(now: Date = Date()) async -> ProviderPartial {
-        // 1. Fresh cache → serve without reading the token or the network (sub data is quasi-static).
-        if let cache = tokenStore.load(Cache.self, for: .grok), now.timeIntervalSince(cache.fetchedAt) < cacheTTL {
-            return Self.success(planName: cache.planName, updatedAt: cache.fetchedAt)
-        }
-        // 2. Read the file token + GET the subscription.
+        let credential: GrokCredentialLoader.Credential
         do {
-            let credential = try credentialLoader.load(now: now)
-            let response = try await httpClient.send(Self.subscriptionsRequest(accessToken: credential.accessToken), timeout: timeout)
-            guard response.status == 200 else {
-                return staleFallback(now: now) ?? Self.failure("Grok subscription request failed with HTTP \(response.status)")
-            }
-            let payload = try JSONDecoder().decode(RawGrokSubscriptions.self, from: response.body)
-            guard let planName = Self.planName(from: payload) else {
-                // Authenticated but no active subscription → free tier, honestly.
-                return Self.failure("No active Grok subscription")
-            }
-            tokenStore.save(Cache(planName: planName, fetchedAt: now), for: .grok)
-            return Self.success(planName: planName, updatedAt: now)
+            credential = try credentialLoader.load(now: now)
         } catch let error as CredentialAccessError {
             // Token expired/absent → keep showing the (static) plan from cache if recent, else re-auth.
             return staleFallback(now: now) ?? Self.failure(error.userMessage)
         } catch {
             return staleFallback(now: now) ?? Self.failure("Grok usage unreadable (\(type(of: error)))")
+        }
+
+        do {
+            let creditsResponse = try await httpClient.send(
+                Self.creditsRequest(accessToken: credential.accessToken), timeout: timeout)
+            guard creditsResponse.status == 200 else {
+                return Self.failure("Grok usage request failed with HTTP \(creditsResponse.status)")
+            }
+            let credits = try JSONDecoder().decode(RawGrokCreditsPayload.self, from: creditsResponse.body)
+            let windows = Self.windows(from: credits, now: now)
+
+            let planName: String?
+            if let cache = tokenStore.load(Cache.self, for: .grok),
+               now.timeIntervalSince(cache.fetchedAt) < cacheTTL {
+                planName = cache.planName
+            } else {
+                planName = await fetchPlanName(accessToken: credential.accessToken, now: now)
+            }
+
+            if planName == nil && windows.isEmpty {
+                return Self.failure("No active Grok subscription")
+            }
+            return Self.success(planName: planName, windows: windows, updatedAt: now)
+        } catch {
+            return staleFallback(now: now) ?? Self.failure("Grok usage unreadable (\(type(of: error)))")
+        }
+    }
+
+    /// Subscriptions GET is optional once credits succeeded. A 5xx here must not hide the weekly bar.
+    private func fetchPlanName(accessToken: String, now: Date) async -> String? {
+        do {
+            let response = try await httpClient.send(
+                Self.subscriptionsRequest(accessToken: accessToken), timeout: timeout)
+            guard response.status == 200 else { return nil }
+            let payload = try JSONDecoder().decode(RawGrokSubscriptions.self, from: response.body)
+            guard let planName = Self.planName(from: payload) else { return nil }
+            tokenStore.save(Cache(planName: planName, fetchedAt: now), for: .grok)
+            return planName
+        } catch {
+            return nil
         }
     }
 
@@ -74,11 +94,11 @@ public struct GrokUsageClient: Sendable {
     private func staleFallback(now: Date) -> ProviderPartial? {
         guard let cache = tokenStore.load(Cache.self, for: .grok),
               now.timeIntervalSince(cache.fetchedAt) < staleFallbackTTL else { return nil }
-        return Self.success(planName: cache.planName, updatedAt: cache.fetchedAt)
+        return Self.success(planName: cache.planName, windows: [], updatedAt: cache.fetchedAt)
     }
 
-    private static func subscriptionsRequest(accessToken: String) -> URLRequest {
-        var request = URLRequest(url: subscriptionsURL)
+    private static func grokJSONGet(_ url: URL, accessToken: String) -> URLRequest {
+        var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         request.setValue("grok-cli", forHTTPHeaderField: "User-Agent")
@@ -86,10 +106,16 @@ public struct GrokUsageClient: Sendable {
         return request
     }
 
+    private static func subscriptionsRequest(accessToken: String) -> URLRequest {
+        grokJSONGet(subscriptionsURL, accessToken: accessToken)
+    }
+
+    private static func creditsRequest(accessToken: String) -> URLRequest {
+        grokJSONGet(creditsURL, accessToken: accessToken)
+    }
+
     /// "Grok Pro · trial ends Jun 25" / "Grok Pro · renews Jul 22", or nil when there's no
-    /// active subscription. The renewal is folded into `planName` so it renders on the card's
-    /// plan line WITHOUT a usage-style window (a window would wrongly feed the menu-bar
-    /// "lowest remaining" number, since Grok's quota windows aren't readable here).
+    /// active subscription. The weekly window is a separate field on the same card.
     static func planName(from payload: RawGrokSubscriptions) -> String? {
         // Only an ACTIVE/TRIALING subscription is a live plan. Do NOT fall back to "first" —
         // a cancelled/expired sub still appears in the list, and showing it would both
@@ -123,10 +149,10 @@ public struct GrokUsageClient: Sendable {
         return formatter.string(from: date)
     }
 
-    private static func success(planName: String, updatedAt: Date) -> ProviderPartial {
+    private static func success(planName: String?, windows: [RateWindow], updatedAt: Date) -> ProviderPartial {
         ProviderPartial(
             provider: .grok,
-            usage: ProviderUsage(provider: .grok, windows: [], accountEmail: nil, planName: planName,
+            usage: ProviderUsage(provider: .grok, windows: windows, accountEmail: nil, planName: planName,
                                  creditsRemaining: nil, exactMonthlyCap: nil, statusIndicator: nil, updatedAt: updatedAt),
             usageError: nil,
             cost: .unavailable(.grok, reason: "Native Grok cost is unavailable."))
