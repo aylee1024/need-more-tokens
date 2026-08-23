@@ -120,3 +120,6 @@ The monthly $ was a hardcoded list-price table keyed off the live plan name; cod
 
 ### 2026-06-10 — Desktop widget dropped from scope
 Andrew cut the widget (M6). The app is menu-bar-only now. The `WidgetSnapshot` / `WidgetSnapshotStore` types **stay** — they are the app's own data model + persistence (the popover renders `WidgetSnapshot.Entry`), not widget-only. Now vestigial without a consumer: the `WidgetCenter.reloadAllTimelines()` calls in the refresh path and the App-Group snapshot save. Left in place for now — harmless, and the door stays open if a widget ever returns; strip on request. The earlier "M6 reload-budget" worry is moot. README + project memory updated.
+
+### 2026-08-23 — Grok weekly usage bar
+The Grok card was plan-only because NMT only GETs `grok.com/rest/subscriptions` and hard-coded `windows: []`. The pollable weekly meter is `GET https://cli-chat-proxy.grok.com/v1/billing?format=credits` with the Grok CLI OIDC bearer. Live on this machine: HTTP 200, `creditUsagePercent: 2.0`, `currentPeriod.type: USAGE_PERIOD_TYPE_WEEKLY`, reset `2026-08-30T18:05:22+00:00`. Does not consume chat quota. `productUsage` is a slice of the same pool (not extra windows). gRPC-web not implemented: REST 200s here. Plan name still comes from subscriptions (6h cache); credits fetch every 120s refresh. `swift test` 151 passed / 1 skipped.

@@ -26,9 +26,9 @@ struct ProviderCardView: View {
             header
 
             if entry.windows.isEmpty && entry.extraWindows.isEmpty {
-                // Grok has no pollable usage windows by design — its plan line carries the
-                // tier + renewal, so the "no windows" notice would be wrong noise. Still show
-                // a real error (e.g. expired token) for any provider.
+                // Grok live with empty windows means credits decode produced no period
+                // (or we are serving a plan-only stale fallback). The plan capsule is
+                // enough; "No usage windows reported" would be noise. Errors still show.
                 if entry.state == .error {
                     Text(entry.errorMessage ?? "Couldn't read usage")
                         .font(Theme.font(.caption, scale: uiScale))
