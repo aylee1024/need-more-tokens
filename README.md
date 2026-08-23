@@ -22,7 +22,7 @@ Real native macOS 26. Liquid Glass, no Electron, no web view, no CLI. It reads y
 
 Every 5-hour and weekly limit, down to the fiddly ones — Claude's Sonnet weekly, Gemini's Antigravity quota. Your monthly plan, pay-as-you-go credits, and the exact time each window resets. The menu-bar number is whatever's closest to empty, green → amber → red as the runway shrinks.
 
-**Grok / Composer** rides along too. The two share one Grok subscription, so a single card covers both. xAI doesn't expose a pollable usage meter, so that card shows your plan and renewal date rather than %-used bars — honest about what it can and can't see.
+**Grok / Composer** share one SuperGrok weekly pool, so a single card covers both. NMT reads `cli-chat-proxy.grok.com/v1/billing?format=credits` with the Grok CLI OIDC token (the same `~/.grok/auth.json` `grok login` writes). The card shows the weekly bar plus plan and renewal.
 
 Don't want a provider? Flip it off in **Settings ▸ Providers** — it stops fetching and its card disappears. 🎛️
 
