@@ -1,9 +1,11 @@
 import Foundation
 
 /// Grok Build and Composer share one SuperGrok weekly pool. This client reads that pool
-/// from `GET …/v1/billing?format=credits` (does not consume chat quota) and the plan/renewal
-/// line from `grok.com/rest/subscriptions`. The plan is cached for 6h because it is
-/// quasi-static; credits are fetched every refresh. NMT never writes `~/.grok/auth.json`.
+/// from `GET …/v1/billing?format=credits` (does not consume chat quota), banked usage
+/// resets from `ConsumerUiSvc/GetRemainingResets`, and the plan/renewal line from
+/// `grok.com/rest/subscriptions`. The plan is cached for 6h because it is quasi-static;
+/// credits and remaining resets are fetched every refresh. NMT never writes
+/// `~/.grok/auth.json` and never POSTs RedeemReset.
 public struct GrokUsageClient: Sendable {
     private static let subscriptionsURL = URL(string: "https://grok.com/rest/subscriptions")!
     private static let creditsURL = URL(string: "https://cli-chat-proxy.grok.com/v1/billing?format=credits")!
@@ -55,6 +57,7 @@ public struct GrokUsageClient: Sendable {
             }
             let credits = try JSONDecoder().decode(RawGrokCreditsPayload.self, from: creditsResponse.body)
             let windows = Self.windows(from: credits, now: now)
+            let resetCount = await fetchResetCount(accessToken: credential.accessToken, now: now)
 
             let planName: String?
             if let cache = tokenStore.load(Cache.self, for: .grok),
@@ -67,7 +70,7 @@ public struct GrokUsageClient: Sendable {
             if planName == nil && windows.isEmpty {
                 return Self.failure("No active Grok subscription")
             }
-            return Self.success(planName: planName, windows: windows, updatedAt: now)
+            return Self.success(planName: planName, windows: windows, resetCount: resetCount, updatedAt: now)
         } catch {
             return staleFallback(now: now) ?? Self.failure("Grok usage unreadable (\(type(of: error)))")
         }
@@ -94,7 +97,20 @@ public struct GrokUsageClient: Sendable {
     private func staleFallback(now: Date) -> ProviderPartial? {
         guard let cache = tokenStore.load(Cache.self, for: .grok),
               now.timeIntervalSince(cache.fetchedAt) < staleFallbackTTL else { return nil }
-        return Self.success(planName: cache.planName, windows: [], updatedAt: cache.fetchedAt)
+        return Self.success(planName: cache.planName, windows: [], resetCount: nil, updatedAt: cache.fetchedAt)
+    }
+
+    /// Banked SuperGrok resets. Failure must not hide the weekly bar: grok.com
+    /// Settings ▸ Usage is still reachable, and the count is optional chrome.
+    private func fetchResetCount(accessToken: String, now: Date) async -> Int? {
+        do {
+            let response = try await httpClient.send(
+                GrokRemainingResets.request(accessToken: accessToken), timeout: timeout)
+            guard response.status == 200 else { return nil }
+            return GrokRemainingResets.resetCount(fromGrpcWeb: response.body, now: now)
+        } catch {
+            return nil
+        }
     }
 
     private static func grokJSONGet(_ url: URL, accessToken: String) -> URLRequest {
@@ -149,11 +165,12 @@ public struct GrokUsageClient: Sendable {
         return formatter.string(from: date)
     }
 
-    private static func success(planName: String?, windows: [RateWindow], updatedAt: Date) -> ProviderPartial {
+    private static func success(planName: String?, windows: [RateWindow], resetCount: Int?, updatedAt: Date) -> ProviderPartial {
         ProviderPartial(
             provider: .grok,
             usage: ProviderUsage(provider: .grok, windows: windows, accountEmail: nil, planName: planName,
-                                 creditsRemaining: nil, exactMonthlyCap: nil, statusIndicator: nil, updatedAt: updatedAt),
+                                 creditsRemaining: nil, exactMonthlyCap: nil, statusIndicator: nil, updatedAt: updatedAt,
+                                 resetCount: resetCount),
             usageError: nil,
             cost: .unavailable(.grok, reason: "Native Grok cost is unavailable."))
     }
