@@ -12,7 +12,7 @@ struct PopoverView: View {
     /// Persistent UI size step (see `UISize`); the A−/A+ controls drive it.
     @AppStorage(UISize.defaultsKey) private var uiSizeStep = UISize.defaultStep
     @State private var showingSettings = false
-    @State private var confirmingCodexReset = false
+    @State private var confirmingReset: Provider?
     @State private var signingInToClaude = false
 
     private var step: Int { UISize.clampedStep(uiSizeStep) }
@@ -25,9 +25,9 @@ struct PopoverView: View {
             if signingInToClaude {
                 paneHeader("Sign in to Claude") { model.finishClaudeSignIn(); signingInToClaude = false }
                 ClaudeSignInPane(model: model, onDone: { signingInToClaude = false })
-            } else if confirmingCodexReset {
-                confirmHeader
-                ConfirmResetPane(model: model, onDone: { confirmingCodexReset = false })
+            } else if let provider = confirmingReset {
+                paneHeader("Use a reset") { confirmingReset = nil }
+                ConfirmResetPane(model: model, provider: provider, onDone: { confirmingReset = nil })
             } else if showingSettings {
                 settingsHeader
                 SettingsPaneView(model: model, onSignInToClaude: {
@@ -56,23 +56,6 @@ struct PopoverView: View {
             .buttonStyle(.borderless)
             .help("Back")
             Text(title)
-                .font(Theme.font(.subheadline, scale: uiScale, weight: .semibold))
-            Spacer()
-        }
-        .padding(.horizontal, scaled(14))
-        .padding(.top, scaled(12))
-        .padding(.bottom, scaled(8))
-    }
-
-    private var confirmHeader: some View {
-        HStack(spacing: scaled(8)) {
-            Button { confirmingCodexReset = false } label: {
-                Image(systemName: "chevron.left")
-                    .font(Theme.font(.subheadline, scale: uiScale, weight: .semibold))
-            }
-            .buttonStyle(.borderless)
-            .help("Back")
-            Text("Use a reset")
                 .font(Theme.font(.subheadline, scale: uiScale, weight: .semibold))
             Spacer()
         }
@@ -167,8 +150,9 @@ struct PopoverView: View {
                         ForEach(model.entries, id: \.provider) { entry in
                             ProviderCardView(
                                 entry: entry,
-                                resetCount: entry.provider == .codex ? entry.resetCount : nil,
-                                onUseReset: codexResetAction(for: entry),
+                                resetCount: CodexReset.isFeatureVisible(provider: entry.provider, resetCount: entry.resetCount)
+                                    ? entry.resetCount : nil,
+                                onUseReset: resetAction(for: entry),
                                 onSignIn: signInAction(for: entry)
                             )
                                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -256,9 +240,16 @@ struct PopoverView: View {
         model.beginClaudeSignIn()
     }
 
-    private func codexResetAction(for entry: WidgetSnapshot.Entry) -> (() -> Void)? {
-        guard entry.provider == .codex, model.codexResetMode != .unavailable else { return nil }
-        return { confirmingCodexReset = true }
+    private func resetAction(for entry: WidgetSnapshot.Entry) -> (() -> Void)? {
+        switch entry.provider {
+        case .codex:
+            guard model.codexResetMode != .unavailable else { return nil }
+            return { confirmingReset = .codex }
+        case .grok:
+            return { confirmingReset = .grok }
+        default:
+            return nil
+        }
     }
 
     /// A layout length scaled to the current UI size.

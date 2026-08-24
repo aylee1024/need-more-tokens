@@ -23,6 +23,22 @@ private enum GrokFixture {
     static let weeklyCredits = """
     {"config":{"currentPeriod":{"type":"USAGE_PERIOD_TYPE_WEEKLY","start":"2026-08-23T18:05:22.677812+00:00","end":"2026-08-30T18:05:22.677812+00:00"},"creditUsagePercent":2.0,"onDemandCap":{"val":0},"onDemandUsed":{"val":0},"productUsage":[{"product":"GrokBuild","usagePercent":1.0},{"product":"GrokChat","usagePercent":1.0}],"prepaidBalance":{"val":0}}}
     """
+
+    static let noResets = HTTPResponse(
+        status: 200,
+        body: GrokRemainingResetsTests.grpcWeb(tokens: []),
+        headers: ["content-type": "application/grpc-web+proto"]
+    )
+
+    static func oneReset(now: Date) -> HTTPResponse {
+        HTTPResponse(
+            status: 200,
+            body: GrokRemainingResetsTests.grpcWeb(tokens: [
+                GrokRemainingResetsTests.token(id: "restok_test", end: now.addingTimeInterval(86_400))
+            ]),
+            headers: ["content-type": "application/grpc-web+proto"]
+        )
+    }
 }
 
 @Suite("Grok usage client")
@@ -32,6 +48,7 @@ struct GrokUsageClientTests {
         defer { try? FileManager.default.removeItem(at: dir) }
         let http = StubHTTPClient(responses: [
             .json(GrokFixture.weeklyCredits),
+            GrokFixture.noResets,
             .json(GrokFixture.proActive),
         ])
 
@@ -50,6 +67,7 @@ struct GrokUsageClientTests {
         let reqs = await http.recordedRequests()
         #expect(reqs.map(\.url?.absoluteString) == [
             "https://cli-chat-proxy.grok.com/v1/billing?format=credits",
+            "https://grok.com/prod_mc_billing.ConsumerUiSvc/GetRemainingResets",
             "https://grok.com/rest/subscriptions",
         ])
         #expect(reqs.first?.headers["Authorization"] == "Bearer grok-jwt-token")
@@ -60,6 +78,7 @@ struct GrokUsageClientTests {
         defer { try? FileManager.default.removeItem(at: dir) }
         let http = StubHTTPClient(responses: [
             .json(GrokFixture.weeklyCredits),
+            GrokFixture.noResets,
             .json(GrokFixture.proTrial),
         ])
 
@@ -88,7 +107,7 @@ struct GrokUsageClientTests {
         defer { try? FileManager.default.removeItem(at: dir) }
         let tokenStore = makeTempTokenStore()
         tokenStore.save(GrokCacheSeed(planName: "Grok Pro · renews Jul 22", fetchedAt: GrokFixture.now), for: .grok)
-        let http = StubHTTPClient(responses: [.json(GrokFixture.weeklyCredits)])
+        let http = StubHTTPClient(responses: [.json(GrokFixture.weeklyCredits), GrokFixture.noResets])
 
         let partial = await GrokUsageClient(credentialLoader: loader, tokenStore: tokenStore, httpClient: http)
             .fetch(now: GrokFixture.now.addingTimeInterval(60))
@@ -97,8 +116,10 @@ struct GrokUsageClientTests {
         #expect(partial.usage?.windows.first?.usedPercent == 2.0)
         #expect(partial.usage?.updatedAt == GrokFixture.now.addingTimeInterval(60))
         let reqs = await http.recordedRequests()
-        #expect(reqs.count == 1)
-        #expect(reqs.first?.url?.absoluteString == "https://cli-chat-proxy.grok.com/v1/billing?format=credits")
+        #expect(reqs.map(\.url?.absoluteString) == [
+            "https://cli-chat-proxy.grok.com/v1/billing?format=credits",
+            "https://grok.com/prod_mc_billing.ConsumerUiSvc/GetRemainingResets",
+        ])
     }
 
     @Test func non200WithoutCacheSurfacesError() async throws {
@@ -177,11 +198,59 @@ struct GrokUsageClientTests {
         defer { try? FileManager.default.removeItem(at: dir) }
         let http = StubHTTPClient(responses: [
             .json(GrokFixture.weeklyCredits),
+            GrokFixture.noResets,
             .json(GrokFixture.proActive),
         ])
         let usage = try #require(await GrokUsageClient(credentialLoader: loader, tokenStore: makeTempTokenStore(), httpClient: http)
             .fetch(now: GrokFixture.now).usage)
         #expect(usage.extraWindows.isEmpty)
         #expect(usage.windows.count == 1)
+    }
+
+    @Test func remainingResetsPopulateResetCount() async throws {
+        let (loader, dir) = try GrokFixture.authFile(expiresAt: "2030-01-01T00:00:00Z")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let http = StubHTTPClient(responses: [
+            .json(GrokFixture.weeklyCredits),
+            GrokFixture.oneReset(now: GrokFixture.now),
+            .json(GrokFixture.proActive),
+        ])
+        let usage = try #require(await GrokUsageClient(credentialLoader: loader, tokenStore: makeTempTokenStore(), httpClient: http)
+            .fetch(now: GrokFixture.now).usage)
+        #expect(usage.resetCount == 1)
+        #expect(usage.windows.first?.usedPercent == 2.0)
+        let reqs = await http.recordedRequests()
+        #expect(reqs[1].method == "POST")
+        #expect(reqs[1].headers["Content-Type"] == "application/grpc-web+proto")
+        #expect(reqs[1].headers["X-Grpc-Web"] == "1")
+        #expect(reqs[1].headers["Authorization"] == "Bearer grok-jwt-token")
+    }
+
+    @Test func remainingResetsFailureLeavesCountNilAndKeepsWeeklyBar() async throws {
+        let (loader, dir) = try GrokFixture.authFile(expiresAt: "2030-01-01T00:00:00Z")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let http = StubHTTPClient(responses: [
+            .json(GrokFixture.weeklyCredits),
+            .json(#"{}"#, status: 500),
+            .json(GrokFixture.proActive),
+        ])
+        let usage = try #require(await GrokUsageClient(credentialLoader: loader, tokenStore: makeTempTokenStore(), httpClient: http)
+            .fetch(now: GrokFixture.now).usage)
+        #expect(usage.resetCount == nil)
+        #expect(usage.windows.first?.usedPercent == 2.0)
+        #expect(usage.planName?.hasPrefix("Grok Pro · renews ") == true)
+    }
+
+    @Test func emptyRemainingResetsIsZeroBanked() async throws {
+        let (loader, dir) = try GrokFixture.authFile(expiresAt: "2030-01-01T00:00:00Z")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let http = StubHTTPClient(responses: [
+            .json(GrokFixture.weeklyCredits),
+            GrokFixture.noResets,
+            .json(GrokFixture.proActive),
+        ])
+        let usage = try #require(await GrokUsageClient(credentialLoader: loader, tokenStore: makeTempTokenStore(), httpClient: http)
+            .fetch(now: GrokFixture.now).usage)
+        #expect(usage.resetCount == 0)
     }
 }

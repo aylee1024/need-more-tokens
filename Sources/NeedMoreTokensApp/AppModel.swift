@@ -71,6 +71,7 @@ final class AppModel {
     var entries: [WidgetSnapshot.Entry] { snapshot?.entries ?? [] }
     var lowestRemainingPercent: Double? { snapshot?.lowestRemainingPercent }
     var codexResetCount: Int? { entries.first { $0.provider == .codex }?.resetCount }
+    var grokResetCount: Int? { entries.first { $0.provider == .grok }?.resetCount }
 
     /// Begins the periodic refresh loop (idempotent).
     func start() {
@@ -315,6 +316,17 @@ final class AppModel {
     func openCodexResetUI() {
         guard case .deepLink(let url) = codexResetMode else { return }
         NSWorkspace.shared.open(url)
+    }
+
+    func openResetUI(for provider: Provider) {
+        switch provider {
+        case .codex:
+            openCodexResetUI()
+        case .grok:
+            NSWorkspace.shared.open(CodexReset.grokUsageURL)
+        default:
+            break
+        }
     }
 
     private static func resolveCodexResetMode() -> CodexResetMode {
