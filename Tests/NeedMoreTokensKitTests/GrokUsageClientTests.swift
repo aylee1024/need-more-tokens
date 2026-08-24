@@ -3,17 +3,24 @@ import Testing
 @testable import NeedMoreTokensKit
 
 /// Matches `GrokUsageClient.Cache` so tests can pre-seed NMT's Grok cache.
-private struct GrokCacheSeed: Codable { var planName: String; var fetchedAt: Date }
+private struct GrokCacheSeed: Codable {
+    var planName: String
+    var fetchedAt: Date
+    var windows: [RateWindow]? = nil
+    var resetCount: Int? = nil
+    var usageFetchedAt: Date? = nil
+}
 
 private enum GrokFixture {
     static let now = Date(timeIntervalSince1970: 1_700_000_000)
 
     /// Writes a `~/.grok/auth.json`-shaped file and returns a loader pointed at it.
-    static func authFile(expiresAt: String) throws -> (GrokCredentialLoader, URL) {
+    static func authFile(expiresAt: String, refreshToken: String? = nil) throws -> (GrokCredentialLoader, URL) {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("nmt-grok-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let url = dir.appendingPathComponent("auth.json")
-        let json = #"{"https://auth.x.ai::client-1":{"key":"grok-jwt-token","expires_at":"\#(expiresAt)","refresh_token":"r"}}"#
+        let refreshField = refreshToken.map { #","refresh_token":"\#($0)""# } ?? ""
+        let json = #"{"https://auth.x.ai::client-1":{"key":"grok-jwt-token","expires_at":"\#(expiresAt)","oidc_client_id":"client-1"\#(refreshField)}}"#
         try Data(json.utf8).write(to: url)
         return (GrokCredentialLoader(url: url), dir)
     }
@@ -90,7 +97,7 @@ struct GrokUsageClientTests {
     }
 
     @Test func expiredTokenSurfacesReauthWithoutHTTP() async throws {
-        let (loader, dir) = try GrokFixture.authFile(expiresAt: "2020-01-01T00:00:00Z")  // already expired
+        let (loader, dir) = try GrokFixture.authFile(expiresAt: "2020-01-01T00:00:00Z")  // already expired, no refresh token
         defer { try? FileManager.default.removeItem(at: dir) }
         let http = StubHTTPClient(responses: [.json(GrokFixture.proActive)])
 
@@ -100,6 +107,115 @@ struct GrokUsageClientTests {
         #expect(partial.usage == nil)
         #expect(partial.usageError?.contains("expired") == true)
         #expect(await http.recordedRequests().isEmpty)  // never hit the network with a dead token
+    }
+
+    /// The live bug: an expired Grok OIDC token (6h TTL) plus a plan-name cache
+    /// rendered a green "live" Grok card with no weekly bar. NMT must not pretend
+    /// the meter is fine when it has no windows.
+    @Test func expiredTokenWithPlanOnlyCacheSurfacesExpiredNotEmptyLiveCard() async throws {
+        let (loader, dir) = try GrokFixture.authFile(expiresAt: "2020-01-01T00:00:00Z")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let tokenStore = makeTempTokenStore()
+        tokenStore.save(GrokCacheSeed(planName: "Grok Pro · trial ends Aug 30", fetchedAt: GrokFixture.now), for: .grok)
+        let http = StubHTTPClient(responses: [])
+
+        let partial = await GrokUsageClient(credentialLoader: loader, tokenStore: tokenStore, httpClient: http)
+            .fetch(now: GrokFixture.now)
+
+        #expect(partial.usage == nil)
+        #expect(partial.usageError?.contains("expired") == true)
+        #expect(await http.recordedRequests().isEmpty)
+    }
+
+    /// Once NMT has seen a weekly window, token expiry must keep showing that
+    /// bar (stale) rather than wiping it. Otherwise every 6h overnight the
+    /// Grok card goes plan-only until `grok` happens to run.
+    @Test func expiredTokenKeepsCachedWeeklyWindow() async throws {
+        let (loader, dir) = try GrokFixture.authFile(expiresAt: "2020-01-01T00:00:00Z")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let tokenStore = makeTempTokenStore()
+        let weekly = RateWindow(
+            label: "Weekly", period: .weekly, windowMinutes: 10_080,
+            usedPercent: 21, resetsAt: Date(timeIntervalSince1970: 1_788_000_000),
+            resetDescription: nil)
+        tokenStore.save(
+            GrokCacheSeed(
+                planName: "Grok Pro · trial ends Aug 30",
+                fetchedAt: GrokFixture.now,
+                windows: [weekly],
+                resetCount: 1,
+                usageFetchedAt: GrokFixture.now),
+            for: .grok)
+        let http = StubHTTPClient(responses: [])
+
+        let partial = await GrokUsageClient(credentialLoader: loader, tokenStore: tokenStore, httpClient: http)
+            .fetch(now: GrokFixture.now)
+
+        let usage = try #require(partial.usage)
+        #expect(partial.usageError == nil)
+        #expect(usage.windows.count == 1)
+        #expect(usage.windows.first?.usedPercent == 21)
+        #expect(usage.planName == "Grok Pro · trial ends Aug 30")
+        #expect(usage.resetCount == 1)
+        #expect(await http.recordedRequests().isEmpty)
+    }
+
+    @Test func expiredAccessTokenRefreshesThenFetchesCredits() async throws {
+        let (loader, dir) = try GrokFixture.authFile(
+            expiresAt: "2020-01-01T00:00:00Z", refreshToken: "rt-live")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let http = StubHTTPClient(responses: [
+            .json(#"{"access_token":"fresh-grok","expires_in":21600,"token_type":"Bearer"}"#),
+            .json(GrokFixture.weeklyCredits),
+            GrokFixture.noResets,
+            .json(GrokFixture.proActive),
+        ])
+
+        let partial = await GrokUsageClient(credentialLoader: loader, tokenStore: makeTempTokenStore(), httpClient: http)
+            .fetch(now: GrokFixture.now)
+
+        let usage = try #require(partial.usage)
+        #expect(partial.usageError == nil)
+        #expect(usage.windows.first?.usedPercent == 2.0)
+        let reqs = await http.recordedRequests()
+        #expect(reqs.map(\.url?.absoluteString) == [
+            "https://auth.x.ai/oauth2/token",
+            "https://cli-chat-proxy.grok.com/v1/billing?format=credits",
+            "https://grok.com/prod_mc_billing.ConsumerUiSvc/GetRemainingResets",
+            "https://grok.com/rest/subscriptions",
+        ])
+        #expect(reqs[1].headers["Authorization"] == "Bearer fresh-grok")
+        let written = try JSONSerialization.jsonObject(with: Data(contentsOf: loaderURL(dir))) as? [String: Any]
+        let entry = written?["https://auth.x.ai::client-1"] as? [String: Any]
+        #expect(entry?["key"] as? String == "fresh-grok")
+        #expect(entry?["oidc_client_id"] as? String == "client-1")
+    }
+
+    @Test func successfulFetchPersistsWindowsForLaterExpiry() async throws {
+        let tokenStore = makeTempTokenStore()
+        let (liveLoader, liveDir) = try GrokFixture.authFile(expiresAt: "2030-01-01T00:00:00Z")
+        defer { try? FileManager.default.removeItem(at: liveDir) }
+        let liveHTTP = StubHTTPClient(responses: [
+            .json(GrokFixture.weeklyCredits),
+            GrokFixture.noResets,
+            .json(GrokFixture.proActive),
+        ])
+        let live = await GrokUsageClient(credentialLoader: liveLoader, tokenStore: tokenStore, httpClient: liveHTTP)
+            .fetch(now: GrokFixture.now)
+        #expect(live.usage?.windows.first?.usedPercent == 2.0)
+
+        let (expiredLoader, expiredDir) = try GrokFixture.authFile(expiresAt: "2020-01-01T00:00:00Z")
+        defer { try? FileManager.default.removeItem(at: expiredDir) }
+        let expired = await GrokUsageClient(
+            credentialLoader: expiredLoader, tokenStore: tokenStore, httpClient: StubHTTPClient(responses: []))
+            .fetch(now: GrokFixture.now.addingTimeInterval(60))
+        #expect(expired.usage?.windows.first?.usedPercent == 2.0)
+        #expect(expired.usage?.planName?.hasPrefix("Grok Pro · renews ") == true)
+        #expect(expired.usageError == nil)
+    }
+
+    private func loaderURL(_ dir: URL) -> URL {
+        dir.appendingPathComponent("auth.json")
     }
 
     @Test func freshPlanCacheSkipsSubscriptionsButStillFetchesCredits() async throws {
@@ -131,7 +247,8 @@ struct GrokUsageClientTests {
             .fetch(now: GrokFixture.now)
 
         #expect(partial.usage == nil)
-        #expect(partial.usageError?.contains("HTTP 401") == true)
+        // 401 on credits is an expired/revoked session, not a transient HTTP blip.
+        #expect(partial.usageError?.contains("expired") == true)
     }
 
     @Test func tierAndRenewalMappingIsRobust() throws {

@@ -4,8 +4,9 @@ import Foundation
 /// from `GET …/v1/billing?format=credits` (does not consume chat quota), banked usage
 /// resets from `ConsumerUiSvc/GetRemainingResets`, and the plan/renewal line from
 /// `grok.com/rest/subscriptions`. The plan is cached for 6h because it is quasi-static;
-/// credits and remaining resets are fetched every refresh. NMT never writes
-/// `~/.grok/auth.json` and never POSTs RedeemReset.
+/// credits and remaining resets are fetched every refresh. Access tokens last 6 hours,
+/// so NMT refreshes them via `auth.x.ai` and writes the new token back to
+/// `~/.grok/auth.json` (grok CLI adopts a sibling write). Never POSTs RedeemReset.
 public struct GrokUsageClient: Sendable {
     private static let subscriptionsURL = URL(string: "https://grok.com/rest/subscriptions")!
     private static let creditsURL = URL(string: "https://cli-chat-proxy.grok.com/v1/billing?format=credits")!
@@ -13,6 +14,7 @@ public struct GrokUsageClient: Sendable {
     private let credentialLoader: GrokCredentialLoader
     private let tokenStore: TokenStore
     private let httpClient: any HTTPClient
+    private let refresher: GrokTokenRefresher
     private let timeout: TimeInterval
     private let cacheTTL: TimeInterval
     private let staleFallbackTTL: TimeInterval
@@ -20,22 +22,28 @@ public struct GrokUsageClient: Sendable {
     public init(credentialLoader: GrokCredentialLoader = GrokCredentialLoader(),
                 tokenStore: TokenStore = TokenStore(),
                 httpClient: any HTTPClient = URLSessionHTTPClient(),
+                refresher: GrokTokenRefresher? = nil,
                 timeout: TimeInterval = 30,
                 cacheTTL: TimeInterval = 6 * 3_600,
                 staleFallbackTTL: TimeInterval = 7 * 24 * 3_600) {
         self.credentialLoader = credentialLoader
         self.tokenStore = tokenStore
         self.httpClient = httpClient
+        self.refresher = refresher ?? GrokTokenRefresher(httpClient: httpClient, timeout: timeout)
         self.timeout = timeout
         self.cacheTTL = cacheTTL
         self.staleFallbackTTL = staleFallbackTTL
     }
 
-    /// The subscription, mapped + cached. `planName` already carries the renewal/trial-end
-    /// (e.g. "Grok Pro · trial ends Jun 25") so the card needs no extra field.
+    /// Plan name (quasi-static, 6h TTL) plus the last successful weekly meter.
+    /// Windows are cached separately from the plan so an expired 6-hour OIDC token
+    /// can still render the last bar instead of a green plan-only card.
     private struct Cache: Codable, Sendable {
         var planName: String
         var fetchedAt: Date
+        var windows: [RateWindow]? = nil
+        var resetCount: Int? = nil
+        var usageFetchedAt: Date? = nil
     }
 
     public func fetch(now: Date = Date()) async -> ProviderPartial {
@@ -43,37 +51,88 @@ public struct GrokUsageClient: Sendable {
         do {
             credential = try credentialLoader.load(now: now)
         } catch let error as CredentialAccessError {
-            // Token expired/absent → keep showing the (static) plan from cache if recent, else re-auth.
             return staleFallback(now: now) ?? Self.failure(error.userMessage)
         } catch {
             return staleFallback(now: now) ?? Self.failure("Grok usage unreadable (\(type(of: error)))")
         }
 
+        var accessToken = credential.accessToken
+        if credential.isAccessTokenExpired {
+            guard let refreshed = await refreshAccessToken(credential, now: now) else {
+                return staleFallback(now: now)
+                    ?? Self.failure(CredentialAccessError.expired(provider: .grok).userMessage)
+            }
+            accessToken = refreshed
+        }
+
         do {
-            let creditsResponse = try await httpClient.send(
-                Self.creditsRequest(accessToken: credential.accessToken), timeout: timeout)
+            var creditsResponse = try await httpClient.send(
+                Self.creditsRequest(accessToken: accessToken), timeout: timeout)
+            if creditsResponse.status == 401, let refreshed = await refreshAccessToken(credential, now: now) {
+                accessToken = refreshed
+                creditsResponse = try await httpClient.send(
+                    Self.creditsRequest(accessToken: accessToken), timeout: timeout)
+            }
             guard creditsResponse.status == 200 else {
+                if creditsResponse.status == 401 {
+                    return staleFallback(now: now)
+                        ?? Self.failure(CredentialAccessError.expired(provider: .grok).userMessage)
+                }
                 return Self.failure("Grok usage request failed with HTTP \(creditsResponse.status)")
             }
             let credits = try JSONDecoder().decode(RawGrokCreditsPayload.self, from: creditsResponse.body)
             let windows = Self.windows(from: credits, now: now)
-            let resetCount = await fetchResetCount(accessToken: credential.accessToken, now: now)
+            let resetCount = await fetchResetCount(accessToken: accessToken, now: now)
 
             let planName: String?
             if let cache = tokenStore.load(Cache.self, for: .grok),
                now.timeIntervalSince(cache.fetchedAt) < cacheTTL {
                 planName = cache.planName
             } else {
-                planName = await fetchPlanName(accessToken: credential.accessToken, now: now)
+                planName = await fetchPlanName(accessToken: accessToken, now: now)
             }
 
             if planName == nil && windows.isEmpty {
                 return Self.failure("No active Grok subscription")
             }
+            persistUsage(planName: planName, windows: windows, resetCount: resetCount, now: now)
             return Self.success(planName: planName, windows: windows, resetCount: resetCount, updatedAt: now)
         } catch {
             return staleFallback(now: now) ?? Self.failure("Grok usage unreadable (\(type(of: error)))")
         }
+    }
+
+    /// Mint a new access token and write it back to auth.json. Returns nil when there is
+    /// no refresh token / client id, or the IdP rejects the grant.
+    private func refreshAccessToken(_ credential: GrokCredentialLoader.Credential,
+                                    now: Date) async -> String? {
+        guard let refreshToken = credential.refreshToken,
+              let clientID = credential.clientID else { return nil }
+        do {
+            let refreshed = try await refresher.refreshed(refreshToken: refreshToken, clientID: clientID)
+            let expiresAt = refreshed.expiresIn.map { now.addingTimeInterval($0) } ?? now.addingTimeInterval(6 * 3_600)
+            credentialLoader.persistRefreshed(
+                accountKey: credential.accountKey,
+                accessToken: refreshed.accessToken,
+                refreshToken: refreshed.refreshToken,
+                expiresAt: expiresAt)
+            return refreshed.accessToken
+        } catch {
+            return nil
+        }
+    }
+
+    /// Remember the last live meter so expiry/transport failure can keep the bar.
+    private func persistUsage(planName: String?, windows: [RateWindow], resetCount: Int?, now: Date) {
+        var cache = tokenStore.load(Cache.self, for: .grok) ?? Cache(
+            planName: planName ?? "Grok", fetchedAt: now)
+        if let planName {
+            cache.planName = planName
+        }
+        cache.windows = windows
+        cache.resetCount = resetCount
+        cache.usageFetchedAt = now
+        tokenStore.save(cache, for: .grok)
     }
 
     /// Subscriptions GET is optional once credits succeeded. A 5xx here must not hide the weekly bar.
@@ -84,20 +143,28 @@ public struct GrokUsageClient: Sendable {
             guard response.status == 200 else { return nil }
             let payload = try JSONDecoder().decode(RawGrokSubscriptions.self, from: response.body)
             guard let planName = Self.planName(from: payload) else { return nil }
-            tokenStore.save(Cache(planName: planName, fetchedAt: now), for: .grok)
+            var cache = tokenStore.load(Cache.self, for: .grok) ?? Cache(planName: planName, fetchedAt: now)
+            cache.planName = planName
+            cache.fetchedAt = now
+            tokenStore.save(cache, for: .grok)
             return planName
         } catch {
             return nil
         }
     }
 
-    /// Serve the cached plan when a live read fails, as long as it isn't too old to trust.
-    /// `updatedAt` is the cache's own fetch time so the card shows when the data was REALLY
-    /// last refreshed (not "just now"), even when serving days-old fallback data.
+    /// Serve the last successful meter when a live read fails, as long as it isn't too
+    /// old to trust. Plan-name-only cache is NOT a fallback: that produced a green
+    /// live card with no weekly bar, which looks like Grok usage isn't implemented.
+    /// `updatedAt` is the usage fetch time so the card shows when the meter was REALLY
+    /// last refreshed (not "just now").
     private func staleFallback(now: Date) -> ProviderPartial? {
-        guard let cache = tokenStore.load(Cache.self, for: .grok),
-              now.timeIntervalSince(cache.fetchedAt) < staleFallbackTTL else { return nil }
-        return Self.success(planName: cache.planName, windows: [], resetCount: nil, updatedAt: cache.fetchedAt)
+        guard let cache = tokenStore.load(Cache.self, for: .grok) else { return nil }
+        let anchor = cache.usageFetchedAt ?? cache.fetchedAt
+        guard now.timeIntervalSince(anchor) < staleFallbackTTL else { return nil }
+        guard let windows = cache.windows, !windows.isEmpty else { return nil }
+        return Self.success(planName: cache.planName, windows: windows,
+                            resetCount: cache.resetCount, updatedAt: anchor)
     }
 
     /// Banked SuperGrok resets. Failure must not hide the weekly bar: grok.com
