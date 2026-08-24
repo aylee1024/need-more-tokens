@@ -22,7 +22,7 @@ Real native macOS 26. Liquid Glass, no Electron, no web view, no CLI. It reads y
 
 Every 5-hour and weekly limit, down to the fiddly ones — Claude's Sonnet weekly, Gemini's Antigravity quota. Your monthly plan, pay-as-you-go credits, and the exact time each window resets. The menu-bar number is whatever's closest to empty, green → amber → red as the runway shrinks.
 
-**Grok / Composer** share one SuperGrok weekly pool, so a single card covers both. NMT reads `cli-chat-proxy.grok.com/v1/billing?format=credits` with the Grok CLI OIDC token (the same `~/.grok/auth.json` `grok login` writes). The card shows the weekly bar plus plan and renewal. Banked SuperGrok usage resets (the "Reset Available" tokens on grok.com Settings ▸ Usage) show as a count on the same card; **Use a reset…** opens that Usage page. NMT never redeems one itself.
+**Grok / Composer** share one SuperGrok weekly pool, so a single card covers both. NMT reads `cli-chat-proxy.grok.com/v1/billing?format=credits` with the Grok CLI OIDC token (the same `~/.grok/auth.json` `grok login` writes) and refreshes that token itself — it lasts 6 hours, so without a refresh the card goes blank overnight. The card shows the weekly bar plus plan and renewal. Banked SuperGrok usage resets (the "Reset Available" tokens on grok.com Settings ▸ Usage) show as a count on the same card; **Use a reset…** opens that Usage page. NMT never redeems one itself.
 
 Don't want a provider? Flip it off in **Settings ▸ Providers** — it stops fetching and its card disappears. 🎛️
 
