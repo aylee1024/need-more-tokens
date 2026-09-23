@@ -64,7 +64,7 @@ public enum AppGroupContainer {
 
     private static func localFallbackDirectory(fileManager: FileManager) -> URL {
         let base = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? fileManager.homeDirectoryForCurrentUser
+            ?? UserHome.url
                 .appendingPathComponent("Library/Application Support", isDirectory: true)
         let dir = base.appendingPathComponent("NeedMoreTokens", isDirectory: true)
         try? fileManager.createDirectory(at: dir, withIntermediateDirectories: true)

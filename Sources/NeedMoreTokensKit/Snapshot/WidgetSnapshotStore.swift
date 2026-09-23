@@ -3,27 +3,42 @@ import Foundation
 /// Reads/writes the widget snapshot in the App Group container. The app writes
 /// (atomically) after each refresh; the widget only reads. Both go through here so
 /// the file format and date strategy are defined in exactly one place.
+///
+/// `encode`/`decode` are the same wire format, exposed so the iCloud sync to the iPhone app
+/// ships byte-compatible payloads.
 public enum WidgetSnapshotStore {
     public static func load(from url: URL = AppGroupContainer.snapshotURL) -> WidgetSnapshot? {
         guard let data = try? Data(contentsOf: url) else { return nil }
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        guard let snapshot = try? decoder.decode(WidgetSnapshot.self, from: data),
-              snapshot.schemaVersion == WidgetSnapshot.currentSchemaVersion else { return nil }
-        return snapshot
+        return decode(data)
     }
 
     @discardableResult
     public static func save(_ snapshot: WidgetSnapshot, to url: URL = AppGroupContainer.snapshotURL) -> Bool {
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        guard let data = try? encoder.encode(snapshot) else { return false }
+        guard let data = encode(snapshot) else { return false }
         do {
             try data.write(to: url, options: [.atomic])
             return true
         } catch {
             return false
         }
+    }
+
+    /// The snapshot's wire form: ISO-8601 dates, sorted keys (so equal snapshots encode to
+    /// equal bytes).
+    public static func encode(_ snapshot: WidgetSnapshot) -> Data? {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.sortedKeys]
+        return try? encoder.encode(snapshot)
+    }
+
+    /// Decodes a snapshot, or nil if it is malformed or from a different schema version.
+    public static func decode(_ data: Data) -> WidgetSnapshot? {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        guard let snapshot = try? decoder.decode(WidgetSnapshot.self, from: data),
+              snapshot.schemaVersion == WidgetSnapshot.currentSchemaVersion else { return nil }
+        return snapshot
     }
 }
 

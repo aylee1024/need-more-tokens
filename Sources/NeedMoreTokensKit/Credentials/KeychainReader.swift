@@ -13,10 +13,15 @@ public protocol KeychainReading: Sendable {
 /// suppressor; the modern `kSecUseAuthenticationUI` query flag does NOT cover the
 /// legacy ACL prompt. The app keeps interaction OFF for background refreshes and
 /// briefly turns it ON only for an explicit, user-initiated "Enable native access".
+///
+/// The legacy file-based Keychain (and its prompt) exists only on macOS; on iOS every item
+/// is app-owned and a read never prompts, so both calls are no-ops there.
 public enum KeychainInteraction {
     /// Background-safe default: a read can never present a prompt.
     public static func disableBackgroundPrompts() {
+        #if os(macOS)
         SecKeychainSetUserInteractionAllowed(false)
+        #endif
     }
 
     /// Run `body` with the Keychain prompt temporarily permitted, then restore the
@@ -24,8 +29,10 @@ public enum KeychainInteraction {
     /// user-initiated grant — never on the periodic refresh path.
     @discardableResult
     public static func withInteractionAllowed<T>(_ body: () -> T) -> T {
+        #if os(macOS)
         SecKeychainSetUserInteractionAllowed(true)
         defer { SecKeychainSetUserInteractionAllowed(false) }
+        #endif
         return body()
     }
 }

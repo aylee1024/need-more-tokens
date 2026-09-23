@@ -10,7 +10,7 @@ import Foundation
 /// An absent/unreadable file still surfaces a clean re-auth message.
 public struct GrokCredentialLoader: Sendable {
     public static var defaultURL: URL {
-        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".grok/auth.json")
+        UserHome.url.appendingPathComponent(".grok/auth.json")
     }
 
     private let url: URL

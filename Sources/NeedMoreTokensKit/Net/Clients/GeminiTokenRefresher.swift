@@ -18,7 +18,7 @@ public struct GeminiOAuthClientConfig: Sendable, Equatable, CustomStringConverti
     }
 
     public static var defaultURL: URL {
-        FileManager.default.homeDirectoryForCurrentUser
+        UserHome.url
             .appendingPathComponent(".config/needmoretokens/gemini-oauth.json")
     }
 

@@ -2,12 +2,12 @@ import Foundation
 
 public struct CredentialStore: Sendable {
     public static var defaultCodexAuthURL: URL {
-        FileManager.default.homeDirectoryForCurrentUser
+        UserHome.url
             .appendingPathComponent(".codex/auth.json")
     }
 
     public static var defaultGeminiOAuthURL: URL {
-        FileManager.default.homeDirectoryForCurrentUser
+        UserHome.url
             .appendingPathComponent(".gemini/oauth_creds.json")
     }
     public static let defaultGeminiKeychainService = "gemini"

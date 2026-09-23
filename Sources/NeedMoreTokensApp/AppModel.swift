@@ -5,6 +5,7 @@ import Security
 import SwiftUI
 import WidgetKit
 import NeedMoreTokensKit
+import NeedMoreTokensSync
 
 private let log = Logger(subsystem: "com.aylee1024.needmoretokens", category: "AppModel")
 
@@ -23,6 +24,17 @@ enum ClaudeSignInPhase: Equatable {
     case exchanging
     case failed(String)
     case succeeded
+}
+
+/// Where the Mac → iPhone iCloud sync stands, for the Settings pane.
+enum PhoneSyncStatus: Equatable {
+    /// This build isn't signed with the iCloud entitlement (the default build) — see README.
+    case unavailable
+    case off
+    /// On, but nothing has gone up yet this launch.
+    case waiting
+    case synced(Date)
+    case failed(String)
 }
 
 /// Owns the refresh loop and the latest snapshot the UI renders. Lives on the main
@@ -57,6 +69,13 @@ final class AppModel {
     /// True while a user-initiated Keychain grant is in flight (interaction is briefly
     /// permitted). The periodic refresh pauses so it can't race the grant dialog.
     private(set) var isSeeding = false
+
+    /// UserDefaults key for the "Sync to iPhone" switch (default OFF).
+    static let phoneSyncKey = "syncToiPhone"
+    /// Nil unless this build is signed with an iCloud container entitlement. Creating a
+    /// CloudKit container without one traps, so this nil is what keeps the default build safe.
+    private let phoneSyncUploader: SnapshotUploader? = AppModel.makePhoneSyncUploader()
+    private(set) var phoneSyncStatus: PhoneSyncStatus = .off
 
     init(dataSource: ProviderDataSource? = nil) {
         // Keystone: a background Keychain read must never present the legacy "allow access"
@@ -188,6 +207,8 @@ final class AppModel {
                 // Don't reload the widget onto a snapshot we failed to persist.
                 log.error("refresh: snapshot save failed; widget left on previous data")
             }
+            // Off the refresh path: a slow iCloud round-trip must not hold up the next cycle.
+            Task { [weak self] in await self?.pushToPhone(snap) }
         } catch {
             engineState = .error
             lastError = "Refresh failed (\(type(of: error)))"
@@ -311,6 +332,42 @@ final class AppModel {
         claudeSignInSession = nil
         claudeSignInGeneration &+= 1
         claudeSignInPhase = .idle
+    }
+
+    // MARK: iPhone sync
+
+    var isPhoneSyncAvailable: Bool { phoneSyncUploader != nil }
+
+    /// Hands the fresh snapshot to the uploader, which decides whether it actually goes up
+    /// (see `SnapshotUploader`). Never throws into the refresh: sync is a side channel.
+    private func pushToPhone(_ snap: WidgetSnapshot) async {
+        guard let uploader = phoneSyncUploader else { phoneSyncStatus = .unavailable; return }
+        guard UserDefaults.standard.bool(forKey: Self.phoneSyncKey) else { phoneSyncStatus = .off; return }
+        switch await uploader.push(snap) {
+        case .uploaded:
+            phoneSyncStatus = .synced(Date())
+        case .unchanged, .throttled:
+            if case .synced = phoneSyncStatus { break }
+            phoneSyncStatus = .waiting
+        case .failed(let reason):
+            phoneSyncStatus = .failed(reason)
+            log.error("phone sync: upload failed \(reason, privacy: .public)")
+        }
+    }
+
+    /// Called when the Settings switch flips, so turning it on uploads straight away.
+    func phoneSyncSettingChanged() {
+        guard let snapshot else {
+            phoneSyncStatus = UserDefaults.standard.bool(forKey: Self.phoneSyncKey) ? .waiting : .off
+            return
+        }
+        Task { await pushToPhone(snapshot) }
+    }
+
+    nonisolated private static func makePhoneSyncUploader() -> SnapshotUploader? {
+        guard let container = CloudSyncConfig.entitledContainerIdentifiers().first else { return nil }
+        return SnapshotUploader(store: CloudKitSnapshotStore(containerIdentifier: container),
+                                sourceDevice: Host.current().localizedName ?? "Mac")
     }
 
     func openCodexResetUI() {
