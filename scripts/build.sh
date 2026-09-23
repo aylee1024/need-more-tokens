@@ -17,13 +17,40 @@
 #
 # Usage: scripts/build.sh            # build; auto-picks a stable identity (ad-hoc only if none found)
 #        scripts/build.sh --install  # also copy to /Applications and relaunch (REQUIRES a stable identity)
+#
+# iPhone sync: NMT_ICLOUD=1 NMT_TEAM_ID=<team> scripts/build.sh --install
+#   Builds WITH the iCloud (CloudKit) entitlement so Settings ▸ iPhone ▸ "Sync to iPhone" can
+#   feed the iPhone app. An entitlement like this needs a provisioning profile, so Xcode signs
+#   the app itself (automatic signing, Apple Development, your team) and this script does NOT
+#   re-sign it afterwards — a re-sign would strip the profile's entitlements. That signature
+#   is still a stable identity, so the Keychain "Always Allow" grant survives rebuilds.
+#   The team must be the one that publishes the iPhone app (they share the iCloud container).
+#   NMT_BUNDLE_PREFIX (default com.aylee1024) must match the iPhone app's prefix.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 xcodegen generate >/dev/null
-xcodebuild -scheme NeedMoreTokens -derivedDataPath build build
 
 APP="build/Build/Products/Debug/NeedMoreTokens.app"
+
+if [ "${NMT_ICLOUD:-0}" = "1" ]; then
+    : "${NMT_TEAM_ID:?NMT_ICLOUD=1 needs NMT_TEAM_ID (the Apple team that publishes the iPhone app)}"
+    PREFIX="${NMT_BUNDLE_PREFIX:-com.aylee1024}"
+    xcodebuild -scheme NeedMoreTokens -derivedDataPath build \
+        -allowProvisioningUpdates \
+        CODE_SIGN_STYLE=Automatic CODE_SIGN_IDENTITY="Apple Development" CODE_SIGNING_REQUIRED=YES \
+        DEVELOPMENT_TEAM="$NMT_TEAM_ID" NMT_BUNDLE_PREFIX="$PREFIX" \
+        PRODUCT_BUNDLE_IDENTIFIER="$PREFIX.needmoretokens" \
+        NMT_ENTITLEMENTS="Sources/NeedMoreTokensApp/NeedMoreTokens-iCloud.entitlements" \
+        build
+    codesign -d --entitlements - "$APP" 2>/dev/null | grep -q "icloud-container-identifiers" || {
+        echo "ERROR: the built app is missing the iCloud entitlement — check the team's CloudKit capability." >&2
+        exit 1
+    }
+    SIGNED_STABLE=1
+    echo "signed by Xcode for team $NMT_TEAM_ID with the iCloud entitlement (sync to iPhone available)"
+else
+xcodebuild -scheme NeedMoreTokens -derivedDataPath build build
 
 # Re-sign AFTER xcodebuild (which signs ad-hoc / "Sign to Run Locally") so the
 # stable identity sticks. Auto-pick the best available identity unless overridden.
@@ -46,6 +73,8 @@ case "$SIGN_ID" in
         fi ;;
 esac
 codesign -dv "$APP" 2>&1 | grep -iE "flags|TeamIdentifier|Signature=" || true
+
+fi  # NMT_ICLOUD
 
 if [ "$SIGNED_STABLE" = "0" ]; then
     echo "WARNING: no stable signing identity — app is ad-hoc; its designated requirement"

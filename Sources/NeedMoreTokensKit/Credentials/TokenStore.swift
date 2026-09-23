@@ -22,7 +22,7 @@ public struct TokenStore: Sendable {
     }
 
     public static var defaultDirectory: URL {
-        FileManager.default.homeDirectoryForCurrentUser
+        UserHome.url
             .appendingPathComponent(".config/needmoretokens", isDirectory: true)
     }
 

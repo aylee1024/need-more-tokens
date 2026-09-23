@@ -54,12 +54,20 @@ extension ClaudeOAuthToken: CustomStringConvertible, CustomDebugStringConvertibl
     public var debugDescription: String { description }
 }
 
-public struct ClaudeOAuthStore: Sendable {
+/// Where NMT keeps its own Claude token. The macOS app uses the 0600 file below; the iOS app
+/// supplies a Keychain-backed store (it has no user-visible home directory). Whatever the
+/// backing, `save` MUST persist the rotated refresh token — see `ClaudeOAuthToken`.
+public protocol ClaudeTokenStoring: Sendable {
+    func load() -> ClaudeOAuthToken?
+    func save(_ token: ClaudeOAuthToken)
+}
+
+public struct ClaudeOAuthStore: ClaudeTokenStoring {
     private let url: URL
     public init(url: URL = ClaudeOAuthStore.defaultURL) { self.url = url }
 
     public static var defaultURL: URL {
-        FileManager.default.homeDirectoryForCurrentUser
+        UserHome.url
             .appendingPathComponent(".config/needmoretokens/claude-token.json")
     }
 

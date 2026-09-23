@@ -4,7 +4,7 @@ public struct ClaudeUsageClient: Sendable {
     private static let usageURL = URL(string: "https://api.anthropic.com/api/oauth/usage")!
 
     private let credentialLoader: ClaudeCredentialLoader
-    private let ownStore: ClaudeOAuthStore
+    private let ownStore: any ClaudeTokenStoring
     private let claudeRefresher: ClaudeTokenRefresher
     private let tokenStore: TokenStore
     private let httpClient: any HTTPClient
@@ -12,7 +12,7 @@ public struct ClaudeUsageClient: Sendable {
     private let skew: TimeInterval
 
     public init(keychainReader: any KeychainReading = SystemKeychainReader(),
-                ownStore: ClaudeOAuthStore = ClaudeOAuthStore(),
+                ownStore: any ClaudeTokenStoring = ClaudeOAuthStore(),
                 claudeRefresher: ClaudeTokenRefresher? = nil,
                 tokenStore: TokenStore = TokenStore(),
                 httpClient: any HTTPClient = URLSessionHTTPClient(),

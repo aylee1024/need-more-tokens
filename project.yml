@@ -41,6 +41,8 @@ targets:
     dependencies:
       - package: NeedMoreTokensKit
         product: NeedMoreTokensKit
+      - package: NeedMoreTokensKit
+        product: NeedMoreTokensSync
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.aylee1024.needmoretokens
@@ -49,6 +51,11 @@ targets:
         # Menu-bar agent: no Dock icon, no main window.
         INFOPLIST_KEY_LSUIElement: "YES"
         INFOPLIST_KEY_NSHumanReadableCopyright: "© 2026 Andrew Lee — MIT"
+        # Empty by default, so the everyday build carries NO entitlements and stays
+        # ad-hoc/re-signable exactly as before. `NMT_ICLOUD=1 scripts/build.sh` sets this to
+        # the iCloud entitlements file (plus a team + automatic signing) so the app can feed
+        # the iPhone companion through CloudKit.
+        CODE_SIGN_ENTITLEMENTS: "$(NMT_ENTITLEMENTS)"
         ASSETCATALOG_COMPILER_GENERATE_ASSET_SYMBOLS: "NO"
         # Build via scripts/build.sh — it re-signs the product with a stable identity
         # (NMT_SIGN_IDENTITY) AFTER xcodebuild, so the Keychain "Always Allow" grant for

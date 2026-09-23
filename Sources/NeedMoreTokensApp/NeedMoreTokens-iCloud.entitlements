@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyLists-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Used ONLY by `NMT_ICLOUD=1 scripts/build.sh`. The container must match the iPhone app's.
+	     $(NMT_BUNDLE_PREFIX) defaults to com.aylee1024 (see scripts/build.sh). -->
+	<key>com.apple.developer.icloud-container-identifiers</key>
+	<array>
+		<string>iCloud.$(NMT_BUNDLE_PREFIX).needmoretokens</string>
+	</array>
+	<key>com.apple.developer.icloud-services</key>
+	<array>
+		<string>CloudKit</string>
+	</array>
+	<!-- Production, even from a development-signed build: the iPhone app from the App Store
+	     reads the Production environment, and Development and Production never see each
+	     other's records. -->
+	<key>com.apple.developer.icloud-container-environment</key>
+	<string>Production</string>
+</dict>
+</plist>

@@ -29,6 +29,14 @@ struct SettingsPaneView: View {
 
                 Divider().opacity(0.25)
 
+                Text("IPHONE")
+                    .font(Theme.font(.caption2, scale: uiScale, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+
+                PhoneSyncRow(model: model)
+
+                Divider().opacity(0.25)
+
                 Text("PROVIDERS")
                     .font(Theme.font(.caption2, scale: uiScale, weight: .semibold))
                     .foregroundStyle(.tertiary)
@@ -127,6 +135,53 @@ private struct EnableNativeAccessRow: View {
                 .font(Theme.font(.caption2, scale: uiScale))
                 .foregroundStyle(.tertiary)
                 .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func scaled(_ base: CGFloat) -> CGFloat { UISize.metric(base, scale: uiScale) }
+}
+
+/// Sends each refresh to the Need More Tokens iPhone app and widget through the user's own
+/// private iCloud. Off by default; only present in builds signed with the iCloud entitlement
+/// (`NMT_ICLOUD=1 scripts/build.sh`).
+private struct PhoneSyncRow: View {
+    let model: AppModel
+    @AppStorage(AppModel.phoneSyncKey) private var enabled = false
+    @Environment(\.uiScale) private var uiScale
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: scaled(4)) {
+            if model.isPhoneSyncAvailable {
+                Toggle(isOn: Binding(get: { enabled },
+                                     set: { enabled = $0; model.phoneSyncSettingChanged() })) {
+                    Text("Sync to iPhone")
+                        .font(Theme.font(.callout, scale: uiScale, weight: .semibold))
+                }
+                .toggleStyle(.switch)
+                .controlSize(.small)
+            }
+
+            Text(caption)
+                .font(Theme.font(.caption2, scale: uiScale))
+                .foregroundStyle(.tertiary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var caption: String {
+        switch model.phoneSyncStatus {
+        case .unavailable:
+            return "This build isn't signed for iCloud. Rebuild with NMT_ICLOUD=1 scripts/build.sh to feed the iPhone app."
+        case .off:
+            return model.isPhoneSyncAvailable
+                ? "Shares your usage with the Need More Tokens iPhone app and widget through your private iCloud. Tokens never leave this Mac."
+                : "This build isn't signed for iCloud. Rebuild with NMT_ICLOUD=1 scripts/build.sh to feed the iPhone app."
+        case .waiting:
+            return "Waiting for the next refresh…"
+        case .synced(let date):
+            return "Synced \(date.formatted(date: .omitted, time: .shortened))."
+        case .failed(let reason):
+            return "iCloud upload failed (\(reason)). Check that you're signed in to iCloud."
         }
     }
 

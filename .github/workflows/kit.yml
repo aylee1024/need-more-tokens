@@ -1,0 +1,44 @@
+name: Kit
+
+# Builds and tests the shared library on macOS, proves it (and the CloudKit sync library)
+# compile for iOS — the iPhone companion app depends on both — and builds the Mac app.
+on:
+  push:
+    branches: [main, "claude/**"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: kit-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  kit:
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode 26
+        run: |
+          sudo xcode-select -s "$(ls -d /Applications/Xcode_26*.app | sort -V | tail -1)"
+          xcodebuild -version
+
+      - name: Unit tests (macOS)
+        run: swift test
+
+      - name: Build Kit + Sync for iOS
+        run: |
+          for scheme in NeedMoreTokensKit NeedMoreTokensSync; do
+            xcodebuild build -scheme "$scheme" -destination 'generic/platform=iOS' \
+              CODE_SIGNING_ALLOWED=NO | tail -5
+            test "${PIPESTATUS[0]}" -eq 0
+          done
+
+      - name: Build the Mac app
+        run: |
+          brew install xcodegen
+          xcodegen generate
+          xcodebuild build -project NeedMoreTokens.xcodeproj -scheme NeedMoreTokens \
+            -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO | tail -5
+          test "${PIPESTATUS[0]}" -eq 0
