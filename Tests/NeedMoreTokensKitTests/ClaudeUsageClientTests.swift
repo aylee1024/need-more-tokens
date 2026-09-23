@@ -7,7 +7,7 @@ private struct ClientStubKeychainReader: KeychainReading {
 
     func readGenericPassword(service: String, account: String?) throws -> Data? {
         #expect(service == "Claude Code-credentials")
-        #expect(account == "andrewlee")
+        #expect(account == NSUserName())  // the login user, whoever runs the tests
         return data
     }
 }

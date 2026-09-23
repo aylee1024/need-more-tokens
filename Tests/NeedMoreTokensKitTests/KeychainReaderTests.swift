@@ -33,7 +33,7 @@ struct KeychainReaderTests {
         #expect(Set(query.keys) == expectedKeys)
         #expect(stringValue(query, kSecClass) == kSecClassGenericPassword as String)
         #expect(stringValue(query, kSecAttrService) == "Claude Code-credentials")
-        #expect(stringValue(query, kSecAttrAccount) == "andrewlee")
+        #expect(stringValue(query, kSecAttrAccount) == NSUserName())
         #expect(boolValue(query, kSecReturnData) == true)
         #expect(stringValue(query, kSecMatchLimit) == kSecMatchLimitOne as String)
         #expect(stringValue(query, kSecMatchLimit) != kSecMatchLimitAll as String)
@@ -71,7 +71,7 @@ struct KeychainReaderTests {
         let reader = StubKeychainReader(
             data: Data(blob.utf8),
             expectedService: "Claude Code-credentials",
-            expectedAccount: "andrewlee"
+            expectedAccount: NSUserName()
         )
 
         let access = try ClaudeCredentialLoader(keychainReader: reader)
@@ -87,7 +87,7 @@ struct KeychainReaderTests {
         let reader = StubKeychainReader(
             data: nil,
             expectedService: "Claude Code-credentials",
-            expectedAccount: "andrewlee"
+            expectedAccount: NSUserName()
         )
 
         do {
