@@ -41,9 +41,15 @@ public struct CloudKitSnapshotStore: SnapshotCloudStoring {
     }
 
     public let containerIdentifier: String
+    /// Caps a download's network time. The widget sets it: WidgetKit gives a timeline
+    /// reload only a few seconds, and a stalled fetch must fall back to the cached snapshot
+    /// rather than get the extension killed. Nil keeps CloudKit's own (long) defaults.
+    public let requestTimeout: TimeInterval?
 
-    public init(containerIdentifier: String = CloudSyncConfig.containerIdentifier()) {
+    public init(containerIdentifier: String = CloudSyncConfig.containerIdentifier(),
+                requestTimeout: TimeInterval? = nil) {
         self.containerIdentifier = containerIdentifier
+        self.requestTimeout = requestTimeout
     }
 
     private var container: CKContainer { CKContainer(identifier: containerIdentifier) }
@@ -68,8 +74,18 @@ public struct CloudKitSnapshotStore: SnapshotCloudStoring {
 
     public func downloadLatest() async throws -> CloudSnapshotRecord? {
         let record: CKRecord
+        let recordID = self.recordID
         do {
-            record = try await database.record(for: recordID)
+            if let requestTimeout {
+                let configuration = CKOperation.Configuration()
+                configuration.timeoutIntervalForRequest = requestTimeout
+                configuration.timeoutIntervalForResource = requestTimeout
+                record = try await database.configuredWith(configuration: configuration) { database in
+                    try await database.record(for: recordID)
+                }
+            } else {
+                record = try await database.record(for: recordID)
+            }
         } catch let error as CKError where error.code == .unknownItem || Self.isMissingZone(error) {
             return nil  // Nothing uploaded yet — not an error.
         }
