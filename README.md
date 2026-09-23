@@ -44,6 +44,18 @@ Claude and Codex stay fresh on their own. Gemini's token lasts ~1 hour and only 
 
 </details>
 
+### On your iPhone 📱
+
+**Need More Tokens for iPhone** ($4.99 on the App Store) puts the same gauges in Liquid Glass widgets on your Home Screen, Lock Screen and StandBy. The Mac does the reading and hands each refresh to the phone through your own **private iCloud**. The phone never needs your Codex, Gemini or Grok sign-ins. It can also read Claude directly, if you sign in to Claude on the phone.
+
+To feed it, build the Mac app with the iCloud entitlement and flip **Settings ▸ iPhone ▸ Sync to iPhone**:
+
+```sh
+NMT_ICLOUD=1 NMT_TEAM_ID=<your team> scripts/build.sh --install
+```
+
+The everyday `scripts/build.sh` build stays entitlement-free and never touches iCloud. [Privacy policy](docs/privacy-ios.md).
+
 <div align="center">
 <br>
 Lives quietly in your menu bar. 🛟<br>
