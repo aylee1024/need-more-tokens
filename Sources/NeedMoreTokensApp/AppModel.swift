@@ -145,8 +145,6 @@ final class AppModel {
                                                         account: ClaudeCredentialLoader.defaultAccount)
                     _ = try? reader.readGenericPassword(service: CredentialStore.defaultGeminiKeychainService,
                                                         account: CredentialStore.defaultGeminiKeychainAccount)
-                    _ = try? reader.readGenericPassword(service: GrokBotCredentialLoader.keychainService,
-                                                        account: GrokBotCredentialLoader.keychainAccount)
                 }
                 continuation.resume()
             }
@@ -183,6 +181,10 @@ final class AppModel {
             engineState = .ok
             lastError = nil
             lastRefresh = Date()
+            if let grok = snap.entries.first(where: { $0.provider == .grok }) {
+                let labels = grok.windows.map(\.label).joined(separator: ", ")
+                log.info("refresh: grok windows \(labels, privacy: .public)")
+            }
             if WidgetSnapshotStore.save(snap) {
                 WidgetCenter.shared.reloadAllTimelines()
                 log.info("refresh: ok, \(snap.entries.count) entries")

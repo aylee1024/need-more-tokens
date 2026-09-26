@@ -11,9 +11,13 @@ public protocol GrokBotTokenLoading: Sendable {
 /// `~/.grok/auth.json`. The desktop app stores that session in `sand-secrets.json`,
 /// with the access token encrypted the way Chromium's safeStorage does (`v10` +
 /// AES-128-CBC). The key is the login-keychain item "Grok Bot Safe Storage" /
-/// "Grok Bot Key". NMT only decrypts. It does not write the file, and a background
-/// read never prompts: an un-granted keychain item returns nil until Settings
-/// enables native access.
+/// "Grok Bot Key".
+///
+/// NMT does not read that item with SecItem. The app is not on the item's access
+/// list, and background refreshes are not allowed to raise the Keychain dialog,
+/// so SecItem returns nothing and the bar never appears. `/usr/bin/security` is
+/// already allowed to read the item. NMT asks it for the password and decrypts
+/// locally. It does not write `sand-secrets.json`.
 public struct GrokBotCredentialLoader: GrokBotTokenLoading, Sendable {
     public static let keychainService = "Grok Bot Safe Storage"
     public static let keychainAccount = "Grok Bot Key"
@@ -24,10 +28,12 @@ public struct GrokBotCredentialLoader: GrokBotTokenLoading, Sendable {
     }
 
     private let url: URL
-    private let keychain: any KeychainReading
+    /// Test double. Production passes nil and reads the password through
+    /// `/usr/bin/security` instead of SecItem.
+    private let keychain: (any KeychainReading)?
 
     public init(url: URL = GrokBotCredentialLoader.defaultURL,
-                keychain: any KeychainReading = SystemKeychainReader()) {
+                keychain: (any KeychainReading)? = nil) {
         self.url = url
         self.keychain = keychain
     }
@@ -41,13 +47,7 @@ public struct GrokBotCredentialLoader: GrokBotTokenLoading, Sendable {
         }
         let record = accounts.active.flatMap { accounts.accounts[$0] } ?? accounts.accounts.values.first
         guard let stored = record?.accessToken, !stored.isEmpty else { return nil }
-        let password: Data?
-        do {
-            password = try keychain.readGenericPassword(service: Self.keychainService, account: Self.keychainAccount)
-        } catch {
-            return nil
-        }
-        guard let password,
+        guard let password = passwordBytes(),
               let token = ChromiumSafeStorage.open(base64: stored, password: password),
               !token.isEmpty else {
             return nil
@@ -56,6 +56,46 @@ public struct GrokBotCredentialLoader: GrokBotTokenLoading, Sendable {
         // when it refreshes; NMT does not mint a new token itself.
         if CredentialExpiry.codexAccessTokenKnownExpired(token, now: now) { return nil }
         return token
+    }
+
+    private func passwordBytes() -> Data? {
+        if let keychain {
+            return try? keychain.readGenericPassword(service: Self.keychainService, account: Self.keychainAccount)
+        }
+        return Self.passwordFromSecurityCLI()
+    }
+
+    /// `security -w` prints the password and a trailing newline. A dialog would
+    /// block a menu-bar refresh, so this gives up after a few seconds.
+    static func passwordFromSecurityCLI() -> Data? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/security")
+        process.arguments = [
+            "find-generic-password",
+            "-s", keychainService,
+            "-a", keychainAccount,
+            "-w",
+        ]
+        let output = Pipe()
+        process.standardOutput = output
+        process.standardError = Pipe()
+        do {
+            try process.run()
+        } catch {
+            return nil
+        }
+        let deadline = Date().addingTimeInterval(3)
+        while process.isRunning && Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.02)
+        }
+        if process.isRunning {
+            process.terminate()
+            return nil
+        }
+        guard process.terminationStatus == 0 else { return nil }
+        var data = output.fileHandleForReading.readDataToEndOfFile()
+        if data.last == 0x0A { data.removeLast() }
+        return data.isEmpty ? nil : data
     }
 
     private struct SecretsFile: Decodable {
