@@ -102,10 +102,9 @@ private struct ClaudeSignInRow: View {
 }
 
 /// One-time grant for native Keychain reads. Claude and Gemini store their tokens in the
-/// Keychain (no file). Grok Bot's weekly limit is encrypted with a third item, "Grok Bot
-/// Safe Storage". NMT keeps Keychain prompts disabled in the background, so the user
-/// grants access here once, choosing "Always Allow" for each item. After that the cards
-/// read silently and NMT never prompts on its own again.
+/// Keychain (no file), and NMT keeps Keychain prompts disabled in the background — so the
+/// user grants access here once, choosing "Always Allow" for each item, after which the
+/// cards read silently and NMT never prompts on its own again.
 private struct EnableNativeAccessRow: View {
     let model: AppModel
     @Environment(\.uiScale) private var uiScale
@@ -124,7 +123,7 @@ private struct EnableNativeAccessRow: View {
             .buttonStyle(.bordered)
             .disabled(model.isSeeding)
 
-            Text("Claude, Gemini, and the Grok Bot limit read tokens from the Keychain. Click once and choose “Always Allow” for each. After that, NMT never prompts in the background.")
+            Text("Claude and Gemini read their tokens from the Keychain. Click once and choose “Always Allow” for each — afterwards NMT never prompts in the background.")
                 .font(Theme.font(.caption2, scale: uiScale))
                 .foregroundStyle(.tertiary)
                 .fixedSize(horizontal: false, vertical: true)

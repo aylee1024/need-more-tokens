@@ -161,6 +161,13 @@ struct GrokBotUsageTests {
         #expect(loader.loadAccessToken(now: Self.now) == "bot-access-token")
     }
 
+    @Test func installedGrokBotSessionDecryptsWhenTheAppIsSignedIn() {
+        let url = GrokBotCredentialLoader.defaultURL
+        guard FileManager.default.fileExists(atPath: url.path) else { return }
+        let token = GrokBotCredentialLoader().loadAccessToken(now: Date())
+        #expect(token?.split(separator: ".").count == 3)
+    }
+
     @Test func expiredJwtIsNotReturned() throws {
         let header = Data(#"{"alg":"none"}"#.utf8).base64EncodedString()
         let payload = Data(#"{"exp":100}"#.utf8).base64EncodedString()
