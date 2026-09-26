@@ -1,4 +1,5 @@
 import CoreGraphics
+import Foundation
 import Testing
 @testable import NeedMoreTokensKit
 
@@ -9,6 +10,36 @@ struct UIScaleTests {
         #expect(UISize.clampedStep(-5) == UISize.minStep)
         #expect(UISize.clampedStep(99) == UISize.maxStep)
         #expect(UISize.clampedStep(3) == 3)
+    }
+
+    @Test func oddStepsSitHalfwayBetweenTheirNeighbors() {
+        for step in (UISize.minStep + 1)..<UISize.maxStep where step % 2 == 1 {
+            let mid = UISize.scale(for: step)
+            let below = UISize.scale(for: step - 1)
+            let above = UISize.scale(for: step + 1)
+            #expect(abs(mid - (below + above) / 2) < 0.0001)
+        }
+        #expect(abs(UISize.scale(for: UISize.defaultStep) - 1.15) < 0.0001)
+    }
+
+    @Test func halfStepMigrationDoublesAnOldStepOnce() {
+        let name = "nmt-ui-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: name)!
+        defer { defaults.removePersistentDomain(forName: name) }
+        defaults.set(3, forKey: UISize.defaultsKey)
+        UISize.migrateToHalfSteps(in: defaults)
+        #expect(defaults.integer(forKey: UISize.defaultsKey) == 6)
+        defaults.set(5, forKey: UISize.defaultsKey)
+        UISize.migrateToHalfSteps(in: defaults)
+        #expect(defaults.integer(forKey: UISize.defaultsKey) == 5)
+    }
+
+    @Test func halfStepMigrationUsesTheOldDefaultWhenNothingWasStored() {
+        let name = "nmt-ui-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: name)!
+        defer { defaults.removePersistentDomain(forName: name) }
+        UISize.migrateToHalfSteps(in: defaults)
+        #expect(defaults.integer(forKey: UISize.defaultsKey) == UISize.defaultStep)
     }
 
     @Test func scaleIsStrictlyIncreasingAcrossSteps() {

@@ -42,11 +42,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.start()
     }
 
-    /// Register the default UI-size step and clamp any out-of-range stored value. We do
-    /// NOT reset an existing step: the user's stored value is honored (a saved window
-    /// frame already matches it), and the A−/A+ toggle is the size control from here on.
+    /// Register the default UI-size step and clamp any out-of-range stored value.
+    /// An existing whole step is doubled once so it still picks the same size; the
+    /// new clicks are the sizes between those. A saved window frame already matches
+    /// that size, and the A−/A+ toggle is the size control from here on.
     private func configureUISizeDefaults() {
         let defaults = UserDefaults.standard
+        UISize.migrateToHalfSteps(in: defaults)
         defaults.register(defaults: [UISize.defaultsKey: UISize.defaultStep])
         let clamped = UISize.clampedStep(defaults.integer(forKey: UISize.defaultsKey))
         defaults.set(clamped, forKey: UISize.defaultsKey)

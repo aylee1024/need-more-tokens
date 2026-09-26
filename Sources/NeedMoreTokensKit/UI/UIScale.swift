@@ -9,12 +9,38 @@ public enum UISize {
     /// UserDefaults key holding the persisted step.
     public static let defaultsKey = "uiSizeStep"
     /// Comfortable starting size; bigger than the cramped macOS baseline that read "too small".
-    public static let defaultStep = 2
+    /// Step 4 is the old default (1.15). Odd steps are the sizes halfway between the old ones.
+    public static let defaultStep = 4
     public static let minStep = 0
-    public static let maxStep = 6
+    public static let maxStep = 12
 
-    /// One multiplier per step (`minStep...maxStep`). Step 2 is the default.
-    static let scales: [CGFloat] = [0.90, 1.00, 1.15, 1.32, 1.50, 1.70, 1.90]
+    /// Written once when a pre-half-step index is doubled. Absent means the stored
+    /// step is still on the old 0...6 scale.
+    public static let halfStepMigrationKey = "uiSizeHalfSteps"
+
+    /// Even indices are the original whole sizes. Odd indices are halfway between
+    /// the neighbors, so each A−/A+ click moves half as far. Step 4 is 1.15.
+    static let scales: [CGFloat] = [
+        0.90, 0.95,
+        1.00, 1.075,
+        1.15, 1.235,
+        1.32, 1.41,
+        1.50, 1.60,
+        1.70, 1.80,
+        1.90,
+    ]
+
+    /// Old steps were 0...6. Doubling the index selects the same multiplier.
+    /// A second launch must not double again.
+    public static func migrateToHalfSteps(in defaults: UserDefaults) {
+        guard defaults.object(forKey: halfStepMigrationKey) == nil else { return }
+        let legacyMax = 6
+        let legacyDefault = 2
+        let stored = defaults.object(forKey: defaultsKey) as? Int ?? legacyDefault
+        let legacy = min(max(stored, 0), legacyMax)
+        defaults.set(legacy * 2, forKey: defaultsKey)
+        defaults.set(true, forKey: halfStepMigrationKey)
+    }
 
     public static func clampedStep(_ step: Int) -> Int {
         min(max(step, minStep), maxStep)
