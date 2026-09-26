@@ -7,14 +7,20 @@ import Foundation
 /// credits and remaining resets are fetched every refresh. Access tokens last 6 hours,
 /// so NMT refreshes them via `auth.x.ai` and writes the new token back to
 /// `~/.grok/auth.json` (grok CLI adopts a sibling write). Never POSTs RedeemReset.
+///
+/// Grok Bot is a second weekly limit on the same card. It is not a slice of the
+/// SuperGrok pool and does not use the Grok CLI token. A failure to read it leaves
+/// the SuperGrok bar in place.
 public struct GrokUsageClient: Sendable {
     private static let subscriptionsURL = URL(string: "https://grok.com/rest/subscriptions")!
     private static let creditsURL = URL(string: "https://cli-chat-proxy.grok.com/v1/billing?format=credits")!
+    private static let botUsageURL = URL(string: "https://api2.cursor.sh/aiserver.v1.DashboardService/GetSandUsageStatus")!
 
     private let credentialLoader: GrokCredentialLoader
     private let tokenStore: TokenStore
     private let httpClient: any HTTPClient
     private let refresher: GrokTokenRefresher
+    private let botTokens: (any GrokBotTokenLoading)?
     private let timeout: TimeInterval
     private let cacheTTL: TimeInterval
     private let staleFallbackTTL: TimeInterval
@@ -23,6 +29,7 @@ public struct GrokUsageClient: Sendable {
                 tokenStore: TokenStore = TokenStore(),
                 httpClient: any HTTPClient = URLSessionHTTPClient(),
                 refresher: GrokTokenRefresher? = nil,
+                botTokens: (any GrokBotTokenLoading)? = nil,
                 timeout: TimeInterval = 30,
                 cacheTTL: TimeInterval = 6 * 3_600,
                 staleFallbackTTL: TimeInterval = 7 * 24 * 3_600) {
@@ -30,6 +37,7 @@ public struct GrokUsageClient: Sendable {
         self.tokenStore = tokenStore
         self.httpClient = httpClient
         self.refresher = refresher ?? GrokTokenRefresher(httpClient: httpClient, timeout: timeout)
+        self.botTokens = botTokens
         self.timeout = timeout
         self.cacheTTL = cacheTTL
         self.staleFallbackTTL = staleFallbackTTL
@@ -81,7 +89,10 @@ public struct GrokUsageClient: Sendable {
                 return Self.failure("Grok usage request failed with HTTP \(creditsResponse.status)")
             }
             let credits = try JSONDecoder().decode(RawGrokCreditsPayload.self, from: creditsResponse.body)
-            let windows = Self.windows(from: credits, now: now)
+            var windows = Self.windows(from: credits, now: now)
+            if let bot = await fetchBotWindow(now: now) {
+                windows.append(bot)
+            }
             let resetCount = await fetchResetCount(accessToken: accessToken, now: now)
 
             let planName: String?
@@ -167,6 +178,21 @@ public struct GrokUsageClient: Sendable {
                             resetCount: cache.resetCount, updatedAt: anchor)
     }
 
+    /// Grok Bot's own weekly limit. Any failure (no session, keychain not granted,
+    /// HTTP, a plan that does not include the allowance) returns nil. The SuperGrok
+    /// window already in hand is unaffected.
+    private func fetchBotWindow(now: Date) async -> RateWindow? {
+        guard let token = botTokens?.loadAccessToken(now: now), !token.isEmpty else { return nil }
+        do {
+            let response = try await httpClient.send(Self.botUsageRequest(accessToken: token), timeout: timeout)
+            guard response.status == 200 else { return nil }
+            let payload = try JSONDecoder().decode(RawGrokBotUsage.self, from: response.body)
+            return Self.botWindow(from: payload, now: now)
+        } catch {
+            return nil
+        }
+    }
+
     /// Banked SuperGrok resets. Failure must not hide the weekly bar: grok.com
     /// Settings ▸ Usage is still reachable, and the count is optional chrome.
     private func fetchResetCount(accessToken: String, now: Date) async -> Int? {
@@ -195,6 +221,17 @@ public struct GrokUsageClient: Sendable {
 
     private static func creditsRequest(accessToken: String) -> URLRequest {
         grokJSONGet(creditsURL, accessToken: accessToken)
+    }
+
+    private static func botUsageRequest(accessToken: String) -> URLRequest {
+        var request = URLRequest(url: botUsageURL)
+        request.httpMethod = "POST"
+        request.httpBody = Data("{}".utf8)
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("1", forHTTPHeaderField: "Connect-Protocol-Version")
+        return request
     }
 
     /// "Grok Pro · trial ends Jun 25" / "Grok Pro · renews Jul 22", or nil when there's no
@@ -287,5 +324,43 @@ public struct GrokUsageClient: Sendable {
                 resetDescription: nil
             )
         ]
+    }
+
+    /// The weekly Grok Bot allowance, when the account actually has one.
+    ///
+    /// `usagePercent` is already 0–100 used. Do not divide by 100: the Grok Bot
+    /// client stores that field as `percentUsed` unchanged, and a reading of
+    /// 0.85 is under one percent, not 85.
+    ///
+    /// No allowance is not zero usage. A plan that excludes Grok Bot still
+    /// answers a percent, and drawing it would show a full bar for a limit the
+    /// account does not have. Require `hasNonZeroIncludedLimit`, or an unexpired
+    /// trial. An org seat on a pooled allowance has no personal share.
+    ///
+    /// Do not invent a reset from `currentPeriodStart` plus seven days. The
+    /// reset is `nextResetTimestampUtc` or nothing.
+    static func botWindow(from reply: RawGrokBotUsage, now: Date) -> RateWindow? {
+        guard reply.usesPooledEnterpriseAllowance != true else { return nil }
+        guard reply.includedLimitZero != true else { return nil }
+        guard let percent = reply.usagePercent, percent.isFinite, percent >= 0 else { return nil }
+        let included = reply.hasNonZeroIncludedLimit == true
+        let trialLive = EngineMapper.parseDate(reply.sandTrialExpiresAt).map { $0 > now } == true
+        guard included || trialLive else { return nil }
+        let resetsAt = EngineMapper.parseDate(reply.nextResetTimestampUtc)
+        let start = EngineMapper.parseDate(reply.currentPeriodStart)
+        let windowMinutes: Int
+        if let start, let resetsAt {
+            windowMinutes = max(1, Int((resetsAt.timeIntervalSince(start) / 60).rounded()))
+        } else {
+            windowMinutes = 10_080
+        }
+        return RateWindow(
+            label: "Weekly · Grok Bot",
+            period: RateWindow.Period(windowMinutes: windowMinutes),
+            windowMinutes: windowMinutes,
+            usedPercent: percent,
+            resetsAt: resetsAt,
+            resetDescription: nil
+        )
     }
 }

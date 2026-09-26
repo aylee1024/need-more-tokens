@@ -9,7 +9,7 @@ public struct NativeProviderDataSource: ProviderDataSource {
     public init(claudeClient: ClaudeUsageClient = ClaudeUsageClient(),
                 codexClient: OpenAICodexClient = OpenAICodexClient(),
                 geminiClient: GeminiUsageClient = GeminiUsageClient(),
-                grokClient: GrokUsageClient = GrokUsageClient(),
+                grokClient: GrokUsageClient = GrokUsageClient(botTokens: GrokBotCredentialLoader()),
                 timeout: TimeInterval = 30) {
         self.init(
             claudeFetch: { now in await claudeClient.fetch(now: now) },
