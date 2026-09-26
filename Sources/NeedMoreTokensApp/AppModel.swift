@@ -145,6 +145,8 @@ final class AppModel {
                                                         account: ClaudeCredentialLoader.defaultAccount)
                     _ = try? reader.readGenericPassword(service: CredentialStore.defaultGeminiKeychainService,
                                                         account: CredentialStore.defaultGeminiKeychainAccount)
+                    _ = try? reader.readGenericPassword(service: GrokBotCredentialLoader.keychainService,
+                                                        account: GrokBotCredentialLoader.keychainAccount)
                 }
                 continuation.resume()
             }
