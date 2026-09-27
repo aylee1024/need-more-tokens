@@ -30,11 +30,11 @@ struct UsageBarView: View {
         VStack(alignment: .leading, spacing: scaled(5)) {
             HStack(spacing: scaled(6)) {
                 Text(window.label)
-                    .font(Theme.font(.caption, scale: uiScale, weight: .medium))
+                    .font(Theme.font(.body, scale: uiScale))
                     .foregroundStyle(.secondary)
                 Spacer(minLength: scaled(8))
                 Text(usedLabel)
-                    .font(Theme.font(.caption, scale: uiScale, weight: .semibold))
+                    .font(Theme.font(.body, scale: uiScale, weight: .semibold))
                     .monospacedDigit()
                     .foregroundStyle(Theme.remainingColor(window.remainingPercent))
             }
@@ -53,7 +53,7 @@ struct UsageBarView: View {
 
             if let reset = resetText {
                 Text(reset)
-                    .font(Theme.font(.caption2, scale: uiScale))
+                    .font(Theme.font(.body, scale: uiScale))
                     .foregroundStyle(.tertiary)
             }
         }

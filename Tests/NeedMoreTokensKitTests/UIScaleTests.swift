@@ -78,9 +78,8 @@ struct UIScaleTests {
         #expect(UISize.panelMinSize(for: s).width <= UISize.panelDefaultSize(for: s).width)
     }
 
-    @Test func textRolesAreOrderedBySize() {
-        #expect(TextRole.largeTitle.basePointSize > TextRole.headline.basePointSize)
-        #expect(TextRole.headline.basePointSize >= TextRole.callout.basePointSize)
-        #expect(TextRole.callout.basePointSize >= TextRole.caption.basePointSize)
+    @Test func textRolesAreTitleAndBody() {
+        #expect(TextRole.title.basePointSize == 13)
+        #expect(TextRole.body.basePointSize == 11)
     }
 }

@@ -46,40 +46,40 @@ struct ClaudeSignInPane: View {
     private var instructions: some View {
         VStack(alignment: .leading, spacing: scaled(12)) {
             Text("Approve Claude in your browser")
-                .font(Theme.font(.headline, scale: uiScale, weight: .semibold))
+                .font(Theme.font(.title, scale: uiScale))
 
             Text("Your browser is open on Anthropic's approval page. Approve, then click the copy button next to the code — this window picks it up automatically.")
-                .font(Theme.font(.caption, scale: uiScale))
+                .font(Theme.font(.body, scale: uiScale))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
             HStack(spacing: scaled(8)) {
                 ProgressView().controlSize(.small)
                 Text("Waiting for the code…")
-                    .font(Theme.font(.caption, scale: uiScale))
+                    .font(Theme.font(.body, scale: uiScale))
                     .foregroundStyle(.tertiary)
             }
 
             Divider().opacity(0.25)
 
             Text("Or paste it here")
-                .font(Theme.font(.caption2, scale: uiScale, weight: .semibold))
+                .font(Theme.font(.body, scale: uiScale))
                 .foregroundStyle(.tertiary)
 
             HStack(spacing: scaled(8)) {
                 TextField("code#state", text: $pasted)
                     .textFieldStyle(.roundedBorder)
-                    .font(Theme.font(.callout, scale: uiScale))
+                    .font(Theme.font(.body, scale: uiScale))
                     .onSubmit { submit(pasted) }
                 Button("Finish") { submit(pasted) }
                     .buttonStyle(.borderedProminent)
-                    .font(Theme.font(.callout, scale: uiScale, weight: .medium))
+                    .font(Theme.font(.body, scale: uiScale))
                     .disabled(pasted.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
 
             if case .failed(let message) = model.claudeSignInPhase {
                 Text(message)
-                    .font(Theme.font(.caption, scale: uiScale))
+                    .font(Theme.font(.body, scale: uiScale))
                     .foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -87,14 +87,14 @@ struct ClaudeSignInPane: View {
             HStack(spacing: scaled(10)) {
                 Button("Reopen page") { model.reopenClaudeSignInPage() }
                     .buttonStyle(.borderless)
-                    .font(Theme.font(.caption, scale: uiScale))
+                    .font(Theme.font(.body, scale: uiScale))
                 Button("Start again") { restart() }
                     .buttonStyle(.borderless)
-                    .font(Theme.font(.caption, scale: uiScale))
+                    .font(Theme.font(.body, scale: uiScale))
                 Spacer(minLength: 0)
                 Button("Cancel") { cancel() }
                     .buttonStyle(.borderless)
-                    .font(Theme.font(.caption, scale: uiScale))
+                    .font(Theme.font(.body, scale: uiScale))
             }
         }
     }
@@ -103,7 +103,7 @@ struct ClaudeSignInPane: View {
         HStack(spacing: scaled(10)) {
             ProgressView().controlSize(.small)
             Text("Signing in…")
-                .font(Theme.font(.callout, scale: uiScale))
+                .font(Theme.font(.body, scale: uiScale))
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, scaled(20))
@@ -113,18 +113,18 @@ struct ClaudeSignInPane: View {
         VStack(alignment: .leading, spacing: scaled(10)) {
             HStack(spacing: scaled(8)) {
                 Image(systemName: "checkmark.circle.fill")
-                    .font(Theme.font(.headline, scale: uiScale))
+                    .font(Theme.font(.title, scale: uiScale))
                     .foregroundStyle(.green)
                 Text("Claude is signed in")
-                    .font(Theme.font(.headline, scale: uiScale, weight: .semibold))
+                    .font(Theme.font(.title, scale: uiScale))
             }
             Text("The token is stored and the card is refreshing. NMT keeps it fresh on its own; Anthropic caps how long a sign-in lasts, so you'll do this again in about a month.")
-                .font(Theme.font(.caption, scale: uiScale))
+                .font(Theme.font(.body, scale: uiScale))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             Button("Done") { finish() }
                 .buttonStyle(.borderedProminent)
-                .font(Theme.font(.callout, scale: uiScale, weight: .medium))
+                .font(Theme.font(.body, scale: uiScale))
         }
     }
 

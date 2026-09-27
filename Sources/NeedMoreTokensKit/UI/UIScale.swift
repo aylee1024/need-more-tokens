@@ -65,19 +65,16 @@ public enum UISize {
     }
 }
 
-/// The macOS text styles this app uses, with their base point sizes (the values the
-/// system assigns these roles at the default scale). Scaling multiplies these.
+/// Two sizes for the window. Titles are provider names and pane titles. Body is
+/// every other label, and the percent is body at semibold. The menu bar is not
+/// in this scale. Scaling multiplies these.
 public enum TextRole {
-    case largeTitle, headline, subheadline, callout, caption, caption2
+    case title, body
 
     public var basePointSize: CGFloat {
         switch self {
-        case .largeTitle: 26
-        case .headline: 13
-        case .subheadline: 11
-        case .callout: 12
-        case .caption: 10
-        case .caption2: 10
+        case .title: 13
+        case .body: 11
         }
     }
 }

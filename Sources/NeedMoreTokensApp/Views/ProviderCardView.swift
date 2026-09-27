@@ -31,11 +31,11 @@ struct ProviderCardView: View {
                 // enough; "No usage windows reported" would be noise. Errors still show.
                 if entry.state == .error {
                     Text(entry.errorMessage ?? "Couldn't read usage")
-                        .font(Theme.font(.caption, scale: uiScale))
+                        .font(Theme.font(.body, scale: uiScale))
                         .foregroundStyle(.secondary)
                 } else if entry.provider != .grok {
                     Text("No usage windows reported")
-                        .font(Theme.font(.caption, scale: uiScale))
+                        .font(Theme.font(.body, scale: uiScale))
                         .foregroundStyle(.secondary)
                 }
             } else {
@@ -57,10 +57,10 @@ struct ProviderCardView: View {
     private var header: some View {
         HStack(spacing: scaled(8)) {
             Text(entry.provider.displayName)
-                .font(Theme.font(.headline, scale: uiScale, weight: .semibold))
+                .font(Theme.font(.title, scale: uiScale))
             if let plan = entry.planName {
                 Text(plan)
-                    .font(Theme.font(.caption2, scale: uiScale, weight: .medium))
+                    .font(Theme.font(.body, scale: uiScale))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .padding(.horizontal, scaled(6))
@@ -80,7 +80,7 @@ struct ProviderCardView: View {
             Circle().fill(.yellow).frame(width: scaled(6), height: scaled(6))
         case .error:
             Image(systemName: "exclamationmark.triangle.fill")
-                .font(Theme.font(.caption2, scale: uiScale, weight: .semibold))
+                .font(Theme.font(.body, scale: uiScale))
                 .foregroundStyle(.orange)
         case .loading:
             ProgressView().controlSize(Theme.progressSize(for: uiScale))
@@ -93,10 +93,10 @@ struct ProviderCardView: View {
         HStack(spacing: scaled(6)) {
             if let price = entry.monthlyPriceUSD {
                 Image(systemName: "creditcard")
-                    .font(Theme.font(.caption2, scale: uiScale))
+                    .font(Theme.font(.body, scale: uiScale))
                     .foregroundStyle(.tertiary)
                 Text("\(formatMoney(price))/mo")
-                    .font(Theme.font(.caption, scale: uiScale))
+                    .font(Theme.font(.body, scale: uiScale))
                     .monospacedDigit()
             }
             Spacer(minLength: 0)
@@ -109,13 +109,13 @@ struct ProviderCardView: View {
         if let cap = entry.exactMonthlyCap {
             // Claude pay-as-you-go beyond the plan: used of limit.
             Text("Extra \(formatMoney(cap.used)) / \(formatMoney(cap.limit))")
-                .font(Theme.font(.caption2, scale: uiScale))
+                .font(Theme.font(.body, scale: uiScale))
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
                 .help("Pay-as-you-go usage beyond your plan (\(cap.periodLabel)).")
         } else if let credits = entry.creditsRemaining {
             Text("\(Int(credits)) credits left")
-                .font(Theme.font(.caption2, scale: uiScale))
+                .font(Theme.font(.body, scale: uiScale))
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
         }
@@ -125,7 +125,7 @@ struct ProviderCardView: View {
         if CodexReset.isFeatureVisible(provider: entry.provider, resetCount: resetCount),
            let resetCount {
             Text(CodexReset.bannerText(count: resetCount))
-                .font(Theme.font(.caption2, scale: uiScale))
+                .font(Theme.font(.body, scale: uiScale))
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
         }
@@ -147,7 +147,7 @@ struct ProviderCardView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .buttonStyle(.glass)
-            .font(Theme.font(.callout, scale: uiScale, weight: .medium))
+            .font(Theme.font(.body, scale: uiScale))
         }
     }
 
@@ -165,7 +165,7 @@ struct ProviderCardView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .buttonStyle(.glass)
-            .font(Theme.font(.callout, scale: uiScale, weight: .medium))
+            .font(Theme.font(.body, scale: uiScale))
             .disabled(resetCount == 0)
         }
     }
