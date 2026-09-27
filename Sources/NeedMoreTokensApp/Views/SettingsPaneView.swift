@@ -14,7 +14,7 @@ struct SettingsPaneView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: scaled(14)) {
                 Text("CLAUDE SIGN-IN")
-                    .font(Theme.font(.caption2, scale: uiScale, weight: .semibold))
+                    .font(Theme.font(.body, scale: uiScale))
                     .foregroundStyle(.tertiary)
 
                 ClaudeSignInRow(needsSignIn: model.claudeNeedsSignIn, action: onSignInToClaude)
@@ -22,7 +22,7 @@ struct SettingsPaneView: View {
                 Divider().opacity(0.25)
 
                 Text("KEYCHAIN ACCESS")
-                    .font(Theme.font(.caption2, scale: uiScale, weight: .semibold))
+                    .font(Theme.font(.body, scale: uiScale))
                     .foregroundStyle(.tertiary)
 
                 EnableNativeAccessRow(model: model)
@@ -30,7 +30,7 @@ struct SettingsPaneView: View {
                 Divider().opacity(0.25)
 
                 Text("PROVIDERS")
-                    .font(Theme.font(.caption2, scale: uiScale, weight: .semibold))
+                    .font(Theme.font(.body, scale: uiScale))
                     .foregroundStyle(.tertiary)
 
                 ForEach(Provider.allCases, id: \.self) { provider in
@@ -41,14 +41,14 @@ struct SettingsPaneView: View {
                 }
 
                 Text("Turn a provider's usage tracking on or off. A disabled provider isn't fetched and shows no card.")
-                    .font(Theme.font(.caption2, scale: uiScale))
+                    .font(Theme.font(.body, scale: uiScale))
                     .foregroundStyle(.tertiary)
                     .fixedSize(horizontal: false, vertical: true)
 
                 Divider().opacity(0.25)
 
                 Text("MONTHLY SUBSCRIPTION")
-                    .font(Theme.font(.caption2, scale: uiScale, weight: .semibold))
+                    .font(Theme.font(.body, scale: uiScale))
                     .foregroundStyle(.tertiary)
 
                 ForEach(Provider.allCases, id: \.self) { provider in
@@ -60,7 +60,7 @@ struct SettingsPaneView: View {
                 }
 
                 Text("Each provider shows its detected price. Override it when the detected plan is ambiguous, such as setting Claude to $100 or $200. “Default” reverts.")
-                    .font(Theme.font(.caption2, scale: uiScale))
+                    .font(Theme.font(.body, scale: uiScale))
                     .foregroundStyle(.tertiary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -85,14 +85,14 @@ private struct ClaudeSignInRow: View {
         VStack(alignment: .leading, spacing: scaled(4)) {
             Button(action: action) {
                 Text(needsSignIn ? "Sign in to Claude" : "Sign in to Claude again")
-                    .font(Theme.font(.callout, scale: uiScale, weight: .semibold))
+                    .font(Theme.font(.body, scale: uiScale))
             }
             .buttonStyle(.bordered)
 
             Text(needsSignIn
                  ? "Claude's sign-in has expired, so its card is dark. This takes about ten seconds in your browser."
                  : "Claude is signed in. Anthropic limits how long a sign-in lasts (about a month), and NMT prompts you on the card when it runs out.")
-                .font(Theme.font(.caption2, scale: uiScale))
+                .font(Theme.font(.body, scale: uiScale))
                 .foregroundStyle(.tertiary)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -117,14 +117,14 @@ private struct EnableNativeAccessRow: View {
                 HStack(spacing: scaled(6)) {
                     if model.isSeeding { ProgressView().controlSize(.small) }
                     Text(model.isSeeding ? "Waiting for Keychain…" : "Enable native access")
-                        .font(Theme.font(.callout, scale: uiScale, weight: .semibold))
+                        .font(Theme.font(.body, scale: uiScale))
                 }
             }
             .buttonStyle(.bordered)
             .disabled(model.isSeeding)
 
             Text("Claude and Gemini read their tokens from the Keychain. Click once and choose “Always Allow” for each — afterwards NMT never prompts in the background.")
-                .font(Theme.font(.caption2, scale: uiScale))
+                .font(Theme.font(.body, scale: uiScale))
                 .foregroundStyle(.tertiary)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -151,7 +151,7 @@ private struct ProviderToggleRow: View {
     var body: some View {
         Toggle(isOn: Binding(get: { enabled }, set: { enabled = $0; onChange() })) {
             Text(provider.displayName)
-                .font(Theme.font(.callout, scale: uiScale, weight: .semibold))
+                .font(Theme.font(.body, scale: uiScale))
         }
         .toggleStyle(.switch)
         .controlSize(.small)
@@ -199,10 +199,10 @@ private struct PriceRow: View {
         VStack(alignment: .leading, spacing: scaled(6)) {
             HStack(spacing: scaled(8)) {
                 Text(provider.displayName)
-                    .font(Theme.font(.callout, scale: uiScale, weight: .semibold))
+                    .font(Theme.font(.body, scale: uiScale))
                 if let plan = detectedPlan {
                     Text(plan)
-                        .font(Theme.font(.caption2, scale: uiScale, weight: .medium))
+                        .font(Theme.font(.body, scale: uiScale))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
@@ -211,11 +211,11 @@ private struct PriceRow: View {
 
             HStack(spacing: scaled(6)) {
                 Text("$")
-                    .font(Theme.font(.callout, scale: uiScale))
+                    .font(Theme.font(.body, scale: uiScale))
                     .foregroundStyle(.secondary)
                 TextField("", value: priceBinding, format: .number)
                     .textFieldStyle(.roundedBorder)
-                    .font(Theme.font(.callout, scale: uiScale))
+                    .font(Theme.font(.body, scale: uiScale))
                     .monospacedDigit()
                     .multilineTextAlignment(.trailing)
                     .frame(width: scaled(72))
@@ -229,7 +229,7 @@ private struct PriceRow: View {
 
                 Button("Default") { override = 0; onChange() }
                     .buttonStyle(.borderless)
-                    .font(Theme.font(.caption, scale: uiScale))
+                    .font(Theme.font(.body, scale: uiScale))
                     .disabled(override <= 0)
             }
         }
@@ -238,7 +238,8 @@ private struct PriceRow: View {
     private func presetChip(_ value: Double) -> some View {
         Button("$\(Int(value))") { override = value; onChange() }
             .buttonStyle(.borderless)
-            .font(Theme.font(.caption, scale: uiScale, weight: override == value ? .bold : .regular))
+            .font(Theme.font(.body, scale: uiScale))
+            .foregroundStyle(override == value ? .primary : .secondary)
             .help("Set \(provider.displayName) to $\(Int(value))/mo")
     }
 

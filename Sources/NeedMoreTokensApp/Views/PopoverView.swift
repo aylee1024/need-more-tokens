@@ -51,12 +51,12 @@ struct PopoverView: View {
         HStack(spacing: scaled(8)) {
             Button(action: onBack) {
                 Image(systemName: "chevron.left")
-                    .font(Theme.font(.subheadline, scale: uiScale, weight: .semibold))
+                    .font(Theme.font(.title, scale: uiScale))
             }
             .buttonStyle(.borderless)
             .help("Back")
             Text(title)
-                .font(Theme.font(.subheadline, scale: uiScale, weight: .semibold))
+                .font(Theme.font(.title, scale: uiScale))
             Spacer()
         }
         .padding(.horizontal, scaled(14))
@@ -68,12 +68,12 @@ struct PopoverView: View {
         HStack(spacing: scaled(8)) {
             Button { showingSettings = false } label: {
                 Image(systemName: "chevron.left")
-                    .font(Theme.font(.subheadline, scale: uiScale, weight: .semibold))
+                    .font(Theme.font(.title, scale: uiScale))
             }
             .buttonStyle(.borderless)
             .help("Back")
             Text("Settings")
-                .font(Theme.font(.subheadline, scale: uiScale, weight: .semibold))
+                .font(Theme.font(.title, scale: uiScale))
             Spacer()
         }
         .padding(.horizontal, scaled(14))
@@ -84,10 +84,10 @@ struct PopoverView: View {
     private var header: some View {
         HStack(spacing: scaled(8)) {
             Image(systemName: "gauge.with.dots.needle.bottom.50percent")
-                .font(Theme.font(.subheadline, scale: uiScale, weight: .semibold))
+                .font(Theme.font(.title, scale: uiScale))
                 .foregroundStyle(.tint)
             Text("Need More Tokens")
-                .font(Theme.font(.subheadline, scale: uiScale, weight: .semibold))
+                .font(Theme.font(.title, scale: uiScale))
             Spacer()
             if model.isRefreshing {
                 ProgressView().controlSize(Theme.progressSize(for: uiScale))
@@ -96,14 +96,14 @@ struct PopoverView: View {
                     Task { await model.refresh() }
                 } label: {
                     Image(systemName: "arrow.clockwise")
-                        .font(Theme.font(.subheadline, scale: uiScale, weight: .semibold))
+                        .font(Theme.font(.title, scale: uiScale))
                 }
                 .buttonStyle(.borderless)
                 .help("Refresh now")
             }
             Button { showingSettings = true } label: {
                 Image(systemName: "gearshape")
-                    .font(Theme.font(.subheadline, scale: uiScale, weight: .semibold))
+                    .font(Theme.font(.title, scale: uiScale))
             }
             .buttonStyle(.borderless)
             .help("Settings")
@@ -122,21 +122,21 @@ struct PopoverView: View {
                 if model.engineState == .error, let error = model.lastError {
                     VStack(spacing: scaled(6)) {
                         Image(systemName: "exclamationmark.triangle")
-                            .font(Theme.font(.callout, scale: uiScale, weight: .semibold))
+                            .font(Theme.font(.body, scale: uiScale))
                             .foregroundStyle(.orange)
                         Text(error)
-                            .font(Theme.font(.callout, scale: uiScale))
+                            .font(Theme.font(.body, scale: uiScale))
                             .foregroundStyle(.secondary)
                     }
                 } else if model.engineState == .loading {
                     ProgressView("Reading usage…")
                         .controlSize(Theme.progressSize(for: uiScale))
-                        .font(Theme.font(.callout, scale: uiScale))
+                        .font(Theme.font(.body, scale: uiScale))
                 } else {
                     // A successful fetch with no entries means every provider is toggled off —
                     // show that, not an endless "Reading usage…" spinner.
                     Text("No providers enabled — turn one on in Settings.")
-                        .font(Theme.font(.callout, scale: uiScale))
+                        .font(Theme.font(.body, scale: uiScale))
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
                 }
@@ -170,17 +170,17 @@ struct PopoverView: View {
     private var onboarding: some View {
         VStack(spacing: scaled(10)) {
             Image(systemName: "bolt.horizontal.circle")
-                .font(Theme.font(.largeTitle, scale: uiScale))
+                .font(Theme.font(.title, scale: uiScale))
                 .foregroundStyle(.secondary)
             Text("Usage unavailable")
-                .font(Theme.font(.headline, scale: uiScale, weight: .semibold))
+                .font(Theme.font(.title, scale: uiScale))
             Text("Need More Tokens reads each provider directly. Check credentials, then try again.")
-                .font(Theme.font(.caption, scale: uiScale))
+                .font(Theme.font(.body, scale: uiScale))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
             Button("Check again") { Task { await model.refresh() } }
                 .buttonStyle(.glass)
-                .font(Theme.font(.callout, scale: uiScale, weight: .medium))
+                .font(Theme.font(.body, scale: uiScale))
         }
         .padding(scaled(20))
     }
@@ -190,13 +190,13 @@ struct PopoverView: View {
             // Error first: otherwise a stale "Updated …" would mask a later failure.
             if let error = model.lastError {
                 Text(error)
-                    .font(Theme.font(.caption2, scale: uiScale))
+                    .font(Theme.font(.body, scale: uiScale))
                     .foregroundStyle(.orange)
                     .lineLimit(1)
                     .truncationMode(.tail)
             } else if let last = model.lastRefresh {
                 Text("Updated \(last.formatted(date: .omitted, time: .shortened))")
-                    .font(Theme.font(.caption2, scale: uiScale))
+                    .font(Theme.font(.body, scale: uiScale))
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)
             }
@@ -204,7 +204,7 @@ struct PopoverView: View {
             sizeControl
             Button("Quit") { NSApplication.shared.terminate(nil) }
                 .buttonStyle(.borderless)
-                .font(Theme.font(.caption, scale: uiScale))
+                .font(Theme.font(.body, scale: uiScale))
         }
         .padding(.horizontal, scaled(14))
         .padding(.vertical, scaled(8))
@@ -214,13 +214,13 @@ struct PopoverView: View {
         HStack(spacing: scaled(1)) {
             Button { uiSizeStep = UISize.clampedStep(step - 1) } label: {
                 Image(systemName: "textformat.size.smaller")
-                    .font(Theme.font(.callout, scale: uiScale, weight: .semibold))
+                    .font(Theme.font(.body, scale: uiScale))
             }
             .buttonStyle(.borderless)
             .disabled(step <= UISize.minStep)
             Button { uiSizeStep = UISize.clampedStep(step + 1) } label: {
                 Image(systemName: "textformat.size.larger")
-                    .font(Theme.font(.callout, scale: uiScale, weight: .semibold))
+                    .font(Theme.font(.body, scale: uiScale))
             }
             .buttonStyle(.borderless)
             .disabled(step >= UISize.maxStep)

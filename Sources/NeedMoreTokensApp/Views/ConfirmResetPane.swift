@@ -11,10 +11,10 @@ struct ConfirmResetPane: View {
         VStack(alignment: .leading, spacing: scaled(14)) {
             VStack(alignment: .leading, spacing: scaled(8)) {
                 Text("Use a banked reset?")
-                    .font(Theme.font(.headline, scale: uiScale, weight: .semibold))
+                    .font(Theme.font(.title, scale: uiScale))
 
                 Text(bodyText)
-                    .font(Theme.font(.callout, scale: uiScale))
+                    .font(Theme.font(.body, scale: uiScale))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -24,7 +24,7 @@ struct ConfirmResetPane: View {
             HStack(spacing: scaled(10)) {
                 Button("Cancel") { onDone() }
                     .buttonStyle(.borderless)
-                    .font(Theme.font(.callout, scale: uiScale))
+                    .font(Theme.font(.body, scale: uiScale))
 
                 Spacer(minLength: scaled(8))
 
@@ -33,7 +33,7 @@ struct ConfirmResetPane: View {
                     onDone()
                 }
                 .buttonStyle(.glass)
-                .font(Theme.font(.callout, scale: uiScale, weight: .medium))
+                .font(Theme.font(.body, scale: uiScale))
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
