@@ -124,7 +124,7 @@ struct ProviderCardView: View {
     @ViewBuilder private var resetCountView: some View {
         if CodexReset.isFeatureVisible(provider: entry.provider, resetCount: resetCount),
            let resetCount {
-            Text(CodexReset.bannerText(count: resetCount))
+            Text(CodexReset.bannerText(count: resetCount, expiresAt: entry.resetExpiresAt))
                 .font(Theme.font(.body, scale: uiScale))
                 .monospacedDigit()
                 .foregroundStyle(.secondary)

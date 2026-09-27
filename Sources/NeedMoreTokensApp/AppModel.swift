@@ -72,6 +72,7 @@ final class AppModel {
     var lowestRemainingPercent: Double? { snapshot?.lowestRemainingPercent }
     var codexResetCount: Int? { entries.first { $0.provider == .codex }?.resetCount }
     var grokResetCount: Int? { entries.first { $0.provider == .grok }?.resetCount }
+    var grokResetExpiresAt: Date? { entries.first { $0.provider == .grok }?.resetExpiresAt }
 
     /// Begins the periodic refresh loop (idempotent).
     func start() {

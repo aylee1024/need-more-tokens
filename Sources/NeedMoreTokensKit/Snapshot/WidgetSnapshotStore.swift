@@ -70,6 +70,7 @@ extension WidgetSnapshot {
                 errorMessage: fetch.usageErrors[provider],
                 updatedAt: usage?.updatedAt,
                 resetCount: usage?.resetCount,
+                resetExpiresAt: usage?.resetExpiresAt,
                 requiresSignIn: fetch.providersNeedingSignIn.contains(provider)
             )
         }

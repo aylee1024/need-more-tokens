@@ -52,7 +52,8 @@ struct ConfirmResetPane: View {
         switch provider {
         case .grok:
             let count = model.grokResetCount ?? 0
-            return "You have \(CodexReset.bannerText(count: count)). Redeeming one clears the current weekly SuperGrok pool. Resets don't stack and they expire. This opens Grok's Usage page, where you can redeem one."
+            let banked = CodexReset.bannerText(count: count, expiresAt: model.grokResetExpiresAt)
+            return "You have \(banked). Redeeming one clears the current weekly SuperGrok pool. Resets don't stack and they expire. This opens Grok's Usage page, where you can redeem one."
         default:
             let count = model.codexResetCount ?? 0
             return "You have \(CodexReset.bannerText(count: count)). Resets are scarce: one free, more only via referral. This opens Codex, where you can use one to clear your current rate-limit window."

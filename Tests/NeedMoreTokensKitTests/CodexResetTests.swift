@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import NeedMoreTokensKit
 
@@ -20,6 +21,11 @@ struct CodexResetTests {
         #expect(CodexReset.bannerText(count: 0) == "0 resets banked")
         #expect(CodexReset.bannerText(count: 1) == "1 reset banked")
         #expect(CodexReset.bannerText(count: 2) == "2 resets banked")
+        let when = Date(timeIntervalSince1970: 1_789_238_940)
+        let formatted = when.formatted(date: .abbreviated, time: .shortened)
+        #expect(CodexReset.bannerText(count: 1, expiresAt: when) == "1 reset banked, expires \(formatted)")
+        #expect(CodexReset.bannerText(count: 2, expiresAt: when) == "2 resets banked, soonest expires \(formatted)")
+        #expect(CodexReset.bannerText(count: 0, expiresAt: when) == "0 resets banked")
     }
 
     @Test func grokUsageURLPointsAtSettingsUsage() {

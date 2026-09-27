@@ -54,6 +54,7 @@ public struct WidgetSnapshot: Codable, Sendable, Equatable {
         public var errorMessage: String?
         public var updatedAt: Date?
         public var resetCount: Int?
+        public var resetExpiresAt: Date?
         /// This provider failed in the one way the user can fix from the popover, so its card
         /// shows a Sign in button instead of only an error string.
         public var requiresSignIn: Bool
@@ -62,7 +63,7 @@ public struct WidgetSnapshot: Codable, Sendable, Equatable {
                     extraWindows: [RateWindow] = [], cost: CostSummary, monthlyPriceUSD: Double? = nil,
                     creditsRemaining: Double?, exactMonthlyCap: MonetaryCap?,
                     state: ProviderState, errorMessage: String? = nil, updatedAt: Date?,
-                    resetCount: Int? = nil, requiresSignIn: Bool = false) {
+                    resetCount: Int? = nil, resetExpiresAt: Date? = nil, requiresSignIn: Bool = false) {
             self.provider = provider
             self.planName = planName
             self.accountEmail = accountEmail
@@ -76,6 +77,7 @@ public struct WidgetSnapshot: Codable, Sendable, Equatable {
             self.errorMessage = errorMessage
             self.updatedAt = updatedAt
             self.resetCount = resetCount
+            self.resetExpiresAt = resetExpiresAt
             self.requiresSignIn = requiresSignIn
         }
 
@@ -85,7 +87,7 @@ public struct WidgetSnapshot: Codable, Sendable, Equatable {
         /// synthesized from these keys.
         enum CodingKeys: String, CodingKey {
             case provider, planName, accountEmail, windows, extraWindows, cost
-            case monthlyPriceUSD, creditsRemaining, exactMonthlyCap, state, errorMessage, updatedAt, resetCount
+            case monthlyPriceUSD, creditsRemaining, exactMonthlyCap, state, errorMessage, updatedAt, resetCount, resetExpiresAt
             case requiresSignIn
         }
 
@@ -104,6 +106,7 @@ public struct WidgetSnapshot: Codable, Sendable, Equatable {
             errorMessage = try c.decodeIfPresent(String.self, forKey: .errorMessage)
             updatedAt = try c.decodeIfPresent(Date.self, forKey: .updatedAt)
             resetCount = try c.decodeIfPresent(Int.self, forKey: .resetCount)
+            resetExpiresAt = try c.decodeIfPresent(Date.self, forKey: .resetExpiresAt)
             requiresSignIn = try c.decodeIfPresent(Bool.self, forKey: .requiresSignIn) ?? false
         }
 
