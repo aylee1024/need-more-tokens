@@ -51,6 +51,7 @@ public struct GrokUsageClient: Sendable {
         var fetchedAt: Date
         var windows: [RateWindow]? = nil
         var resetCount: Int? = nil
+        var resetExpiresAt: Date? = nil
         var usageFetchedAt: Date? = nil
     }
 
@@ -93,7 +94,7 @@ public struct GrokUsageClient: Sendable {
             if let bot = await fetchBotWindow(now: now) {
                 windows.append(bot)
             }
-            let resetCount = await fetchResetCount(accessToken: accessToken, now: now)
+            let resetBank = await fetchResetBank(accessToken: accessToken, now: now)
 
             let planName: String?
             if let cache = tokenStore.load(Cache.self, for: .grok),
@@ -106,8 +107,10 @@ public struct GrokUsageClient: Sendable {
             if planName == nil && windows.isEmpty {
                 return Self.failure("No active Grok subscription")
             }
-            persistUsage(planName: planName, windows: windows, resetCount: resetCount, now: now)
-            return Self.success(planName: planName, windows: windows, resetCount: resetCount, updatedAt: now)
+            persistUsage(planName: planName, windows: windows, resetCount: resetBank.count,
+                         resetExpiresAt: resetBank.expiresAt, now: now)
+            return Self.success(planName: planName, windows: windows, resetCount: resetBank.count,
+                                resetExpiresAt: resetBank.expiresAt, updatedAt: now)
         } catch {
             return staleFallback(now: now) ?? Self.failure("Grok usage unreadable (\(type(of: error)))")
         }
@@ -134,7 +137,8 @@ public struct GrokUsageClient: Sendable {
     }
 
     /// Remember the last live meter so expiry/transport failure can keep the bar.
-    private func persistUsage(planName: String?, windows: [RateWindow], resetCount: Int?, now: Date) {
+    private func persistUsage(planName: String?, windows: [RateWindow], resetCount: Int?,
+                              resetExpiresAt: Date?, now: Date) {
         var cache = tokenStore.load(Cache.self, for: .grok) ?? Cache(
             planName: planName ?? "Grok", fetchedAt: now)
         if let planName {
@@ -142,6 +146,7 @@ public struct GrokUsageClient: Sendable {
         }
         cache.windows = windows
         cache.resetCount = resetCount
+        cache.resetExpiresAt = resetExpiresAt
         cache.usageFetchedAt = now
         tokenStore.save(cache, for: .grok)
     }
@@ -175,7 +180,8 @@ public struct GrokUsageClient: Sendable {
         guard now.timeIntervalSince(anchor) < staleFallbackTTL else { return nil }
         guard let windows = cache.windows, !windows.isEmpty else { return nil }
         return Self.success(planName: cache.planName, windows: windows,
-                            resetCount: cache.resetCount, updatedAt: anchor)
+                            resetCount: cache.resetCount, resetExpiresAt: cache.resetExpiresAt,
+                            updatedAt: anchor)
     }
 
     /// Grok Bot's own weekly limit. Any failure (no session, keychain not granted,
@@ -195,14 +201,17 @@ public struct GrokUsageClient: Sendable {
 
     /// Banked SuperGrok resets. Failure must not hide the weekly bar: grok.com
     /// Settings ▸ Usage is still reachable, and the count is optional chrome.
-    private func fetchResetCount(accessToken: String, now: Date) async -> Int? {
+    private func fetchResetBank(accessToken: String, now: Date) async -> (count: Int?, expiresAt: Date?) {
         do {
             let response = try await httpClient.send(
                 GrokRemainingResets.request(accessToken: accessToken), timeout: timeout)
-            guard response.status == 200 else { return nil }
-            return GrokRemainingResets.resetCount(fromGrpcWeb: response.body, now: now)
+            guard response.status == 200,
+                  let bank = GrokRemainingResets.bank(fromGrpcWeb: response.body, now: now) else {
+                return (nil, nil)
+            }
+            return (bank.count, bank.earliestExpiry)
         } catch {
-            return nil
+            return (nil, nil)
         }
     }
 
@@ -269,12 +278,13 @@ public struct GrokUsageClient: Sendable {
         return formatter.string(from: date)
     }
 
-    private static func success(planName: String?, windows: [RateWindow], resetCount: Int?, updatedAt: Date) -> ProviderPartial {
+    private static func success(planName: String?, windows: [RateWindow], resetCount: Int?,
+                                resetExpiresAt: Date? = nil, updatedAt: Date) -> ProviderPartial {
         ProviderPartial(
             provider: .grok,
             usage: ProviderUsage(provider: .grok, windows: windows, accountEmail: nil, planName: planName,
                                  creditsRemaining: nil, exactMonthlyCap: nil, statusIndicator: nil, updatedAt: updatedAt,
-                                 resetCount: resetCount),
+                                 resetCount: resetCount, resetExpiresAt: resetExpiresAt),
             usageError: nil,
             cost: .unavailable(.grok, reason: "Native Grok cost is unavailable."))
     }

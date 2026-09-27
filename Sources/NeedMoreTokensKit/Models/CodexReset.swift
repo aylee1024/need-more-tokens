@@ -10,7 +10,11 @@ public enum CodexReset {
         }
     }
 
-    public static func bannerText(count: Int) -> String {
-        "\(count) reset\(count == 1 ? "" : "s") banked"
+    public static func bannerText(count: Int, expiresAt: Date? = nil) -> String {
+        let base = "\(count) reset\(count == 1 ? "" : "s") banked"
+        guard count > 0, let expiresAt else { return base }
+        let when = expiresAt.formatted(date: .abbreviated, time: .shortened)
+        if count == 1 { return "\(base), expires \(when)" }
+        return "\(base), soonest expires \(when)"
     }
 }

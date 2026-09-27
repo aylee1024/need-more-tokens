@@ -113,11 +113,14 @@ public struct ProviderUsage: Sendable, Codable, Equatable {
     public let statusIndicator: String?
     public let updatedAt: Date?
     public let resetCount: Int?
+    /// Soonest expiry among banked resets. Nil when the provider reports a count
+    /// and no dates (Codex), or when nothing is banked.
+    public let resetExpiresAt: Date?
 
     public init(provider: Provider, windows: [RateWindow], extraWindows: [RateWindow] = [],
                 accountEmail: String?, planName: String?, creditsRemaining: Double?,
                 exactMonthlyCap: MonetaryCap?, statusIndicator: String?, updatedAt: Date?,
-                resetCount: Int? = nil) {
+                resetCount: Int? = nil, resetExpiresAt: Date? = nil) {
         self.provider = provider
         self.windows = windows
         self.extraWindows = extraWindows
@@ -128,6 +131,7 @@ public struct ProviderUsage: Sendable, Codable, Equatable {
         self.statusIndicator = statusIndicator
         self.updatedAt = updatedAt
         self.resetCount = resetCount
+        self.resetExpiresAt = resetExpiresAt
     }
 
     /// The window closest to exhausting — drives the menu-bar "lowest remaining"

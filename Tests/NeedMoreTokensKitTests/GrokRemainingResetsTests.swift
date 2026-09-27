@@ -40,6 +40,7 @@ struct GrokRemainingResetsTests {
             Self.token(id: "restok_b", end: end.addingTimeInterval(86_400)),
         ])
         #expect(GrokRemainingResets.resetCount(fromGrpcWeb: body, now: Self.now) == 2)
+        #expect(GrokRemainingResets.bank(fromGrpcWeb: body, now: Self.now)?.earliestExpiry == end)
     }
 
     @Test func grpcStatusNonZeroIsUnreadable() {

@@ -20,23 +20,37 @@ enum GrokRemainingResets {
         return request
     }
 
+    struct Bank: Equatable, Sendable {
+        let count: Int
+        /// Soonest `validity_end` among the unexpired tokens. Nil when none remain.
+        let earliestExpiry: Date?
+    }
+
     /// Unexpired reset tokens in a gRPC-web body. `nil` means the frame was
     /// unreadable or the RPC failed (`grpc-status` other than 0). A successful
-    /// empty list is `0`, not `nil`.
-    static func resetCount(fromGrpcWeb body: Data, now: Date) -> Int? {
+    /// empty list is count `0`, not `nil`.
+    static func bank(fromGrpcWeb body: Data, now: Date) -> Bank? {
         guard let framed = GrpcWebFrame.parse(body), framed.status == 0 else { return nil }
         var reader = ProtoReader(framed.message)
         var count = 0
+        var earliest: Date?
         while let field = reader.nextField() {
             guard field.number == 10, field.wire == 2 else { continue }
-            if tokenIsUnexpired(field.payload, now: now) { count += 1 }
+            guard let end = unexpiredEnd(field.payload, now: now) else { continue }
+            count += 1
+            if earliest == nil || end < earliest! { earliest = end }
         }
-        return count
+        return Bank(count: count, earliestExpiry: earliest)
+    }
+
+    static func resetCount(fromGrpcWeb body: Data, now: Date) -> Int? {
+        bank(fromGrpcWeb: body, now: now)?.count
     }
 
     /// `ConsumerResetToken`: token_id=10, validity_end=30 (google.protobuf.Timestamp).
     /// Drop empty ids and missing/expired ends, matching grok.com's own filter.
-    private static func tokenIsUnexpired(_ bytes: Data, now: Date) -> Bool {
+    /// The returned date is that token's `validity_end`.
+    private static func unexpiredEnd(_ bytes: Data, now: Date) -> Date? {
         var reader = ProtoReader(bytes)
         var tokenId = ""
         var validityEnd: Date?
@@ -47,8 +61,8 @@ enum GrokRemainingResets {
                 validityEnd = timestampDate(field.payload)
             }
         }
-        guard !tokenId.isEmpty, let end = validityEnd else { return false }
-        return end > now
+        guard !tokenId.isEmpty, let end = validityEnd, end > now else { return nil }
+        return end
     }
 
     private static func timestampDate(_ bytes: Data) -> Date? {
