@@ -178,7 +178,7 @@ struct GeminiUsageClientTests {
         #expect((loadBody["metadata"] as? [String: Any])?["ideType"] as? String == "ANTIGRAVITY")
 
         let quota = requests[1]
-        #expect(quota.url?.absoluteString == "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary")
+        #expect(quota.url?.absoluteString == "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary")
         #expect(quota.method == "POST")
         #expect(quota.headers["Authorization"] == "Bearer gemini-token")
         #expect(quota.headers["Content-Type"] == "application/json")

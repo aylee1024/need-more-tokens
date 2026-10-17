@@ -2,7 +2,13 @@ import Foundation
 
 public struct GeminiUsageClient: Sendable {
     private static let loadCodeAssistURL = URL(string: "https://daily-cloudcode-pa.googleapis.com/v1internal:loadCodeAssist")!
-    private static let retrieveQuotaURL = URL(string: "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary")!
+    // daily-cloudcode-pa's quota summary omits the Gemini group for this client
+    // (only "Claude and GPT models" comes back). A newer User-Agent on that host
+    // returns Gemini at remainingFraction 1 with resetTime equal to now plus the
+    // window, a placeholder rather than the account's usage. cloudcode-pa returns
+    // the real Gemini weekly window. loadCodeAssist stays on daily: that is the
+    // host that resolves the project, and the same project id works here.
+    private static let retrieveQuotaURL = URL(string: "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary")!
     // The grouped quota endpoint gates its response on the Antigravity CLI's
     // User-Agent — without it the server returns empty `groups`. Mirror agy.
     private static let antigravityUserAgent = "antigravity/cli/1.0.9 darwin/arm64"

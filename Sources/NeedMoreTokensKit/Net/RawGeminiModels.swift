@@ -1,7 +1,8 @@
 import Foundation
 
-// POST https://daily-cloudcode-pa.googleapis.com/v1internal:loadCodeAssist and
-// :retrieveUserQuotaSummary - shapes verified from Antigravity agy capture, 2026-06-18.
+// loadCodeAssist is https://daily-cloudcode-pa.googleapis.com/v1internal:loadCodeAssist.
+// The quota summary is https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary.
+// Grouped response shape verified from Antigravity, 2026-06-18.
 
 public struct RawGeminiLoadCodeAssistPayload: Decodable, Sendable {
     public let cloudaicompanionProject: String?
