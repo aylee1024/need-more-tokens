@@ -9,9 +9,17 @@ public struct GeminiUsageClient: Sendable {
     // the real Gemini weekly window. loadCodeAssist stays on daily: that is the
     // host that resolves the project, and the same project id works here.
     private static let retrieveQuotaURL = URL(string: "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary")!
+    // Gemini 4 Argon is a separate weekly bucket, and cloudcode-pa does not return
+    // that group. daily-cloudcode-pa does, but only for a current Antigravity user
+    // agent: antigravity/cli/1.0.9 on that host gets no Argon group. The "Gemini
+    // Models" group in that same response is the placeholder above, so the Argon
+    // request contributes only the Argon group. A failure leaves the shared
+    // Gemini windows in place.
+    private static let argonQuotaURL = URL(string: "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary")!
     // The grouped quota endpoint gates its response on the Antigravity CLI's
     // User-Agent — without it the server returns empty `groups`. Mirror agy.
     private static let antigravityUserAgent = "antigravity/cli/1.0.9 darwin/arm64"
+    private static let argonQuotaUserAgent = "antigravity/cli/1.4.2 darwin/arm64"
 
     private let credentialStore: CredentialStore
     private let tokenStore: TokenStore
@@ -63,7 +71,12 @@ public struct GeminiUsageClient: Sendable {
             }
 
             let payload = try JSONDecoder().decode(RawGeminiQuotaPayload.self, from: quotaResponse.body)
-            guard let usage = Self.usage(from: payload, now: now) else {
+            let shared = Self.sharedWindows(from: payload)
+            var argon = Self.argonWindows(from: payload)
+            if argon.isEmpty {
+                argon = await argonWindows(accessToken: accessToken, project: project)
+            }
+            guard let usage = Self.usage(windows: shared + argon, now: now) else {
                 return Self.failure("No Gemini quota buckets returned")
             }
             return ProviderPartial(provider: .gemini,
@@ -216,17 +229,38 @@ public struct GeminiUsageClient: Sendable {
     }
 
     private static func retrieveQuotaRequest(accessToken: String, project: String) throws -> URLRequest {
-        var request = URLRequest(url: retrieveQuotaURL)
+        try quotaRequest(url: retrieveQuotaURL, userAgent: antigravityUserAgent, accessToken: accessToken, project: project)
+    }
+
+    private static func argonQuotaRequest(accessToken: String, project: String) throws -> URLRequest {
+        try quotaRequest(url: argonQuotaURL, userAgent: argonQuotaUserAgent, accessToken: accessToken, project: project)
+    }
+
+    private static func quotaRequest(url: URL, userAgent: String, accessToken: String, project: String) throws -> URLRequest {
+        var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(antigravityUserAgent, forHTTPHeaderField: "User-Agent")
+        request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
         request.httpBody = try JSONSerialization.data(withJSONObject: ["project": project])
         return request
     }
 
-    private static func usage(from payload: RawGeminiQuotaPayload, now: Date) -> ProviderUsage? {
-        let windows = windows(from: payload)
+    /// Argon quota from daily-cloudcode-pa. Any failure, including an auth status,
+    /// is ignored: the shared Gemini windows already succeeded with this token, and
+    /// clearing the cache here would drop a token the primary host just accepted.
+    private func argonWindows(accessToken: String, project: String) async -> [RateWindow] {
+        do {
+            let response = try await httpClient.send(try Self.argonQuotaRequest(accessToken: accessToken, project: project), timeout: timeout)
+            guard response.status == 200 else { return [] }
+            let payload = try JSONDecoder().decode(RawGeminiQuotaPayload.self, from: response.body)
+            return Self.argonWindows(from: payload)
+        } catch {
+            return []
+        }
+    }
+
+    private static func usage(windows: [RateWindow], now: Date) -> ProviderUsage? {
         guard !windows.isEmpty else { return nil }
 
         return ProviderUsage(
@@ -241,27 +275,70 @@ public struct GeminiUsageClient: Sendable {
         )
     }
 
-    private static func windows(from payload: RawGeminiQuotaPayload) -> [RateWindow] {
-        let groups = payload.groups ?? []
+    /// Shared Flash/Pro windows. Argon buckets are excluded here even when a
+    /// renamed group makes the fallback match every `gemini-` id: an Argon
+    /// bucket labeled "Weekly" would hide behind the shared weekly bar.
+    private static func sharedWindows(from payload: RawGeminiQuotaPayload) -> [RateWindow] {
+        let groups = (payload.groups ?? []).filter { !isArgonGroup($0) }
         let geminiGroups = groups.filter { $0.displayName == "Gemini Models" }
         let buckets: [RawGeminiQuotaBucket]
         if geminiGroups.isEmpty {
             buckets = groups
                 .flatMap { $0.buckets ?? [] }
-                .filter { $0.bucketId?.hasPrefix("gemini-") == true }
+                .filter { bucket in
+                    guard let id = bucket.bucketId else { return false }
+                    return id.hasPrefix("gemini-") && !isArgonBucket(id)
+                }
         } else {
-            buckets = geminiGroups.flatMap { $0.buckets ?? [] }
+            buckets = geminiGroups.flatMap { $0.buckets ?? [] }.filter { bucket in
+                guard let id = bucket.bucketId else { return true }
+                return !isArgonBucket(id)
+            }
         }
+        return rateWindows(from: buckets, modelTag: nil)
+    }
 
-        return buckets.compactMap { bucket -> RateWindow? in
+    /// Gemini 4 Argon only. A group named for Argon contributes every bucket.
+    /// An Argon bucket sitting inside another group contributes only itself, so
+    /// a shared Flash/Pro bucket in that group is not relabeled as Argon. The
+    /// daily host's "Gemini Models" group is not an Argon group and is not read.
+    private static func argonWindows(from payload: RawGeminiQuotaPayload) -> [RateWindow] {
+        let buckets = (payload.groups ?? []).flatMap { group -> [RawGeminiQuotaBucket] in
+            if isArgonGroup(group) { return group.buckets ?? [] }
+            return (group.buckets ?? []).filter { bucket in
+                guard let id = bucket.bucketId else { return false }
+                return isArgonBucket(id)
+            }
+        }
+        return rateWindows(from: buckets, modelTag: "Argon")
+    }
+
+    private static func isArgonGroup(_ group: RawGeminiQuotaGroup) -> Bool {
+        if group.displayName?.localizedCaseInsensitiveContains("argon") == true { return true }
+        let buckets = group.buckets ?? []
+        guard !buckets.isEmpty else { return false }
+        return buckets.allSatisfy { bucket in
+            guard let id = bucket.bucketId else { return false }
+            return isArgonBucket(id)
+        }
+    }
+
+    private static func isArgonBucket(_ bucketId: String) -> Bool {
+        bucketId.localizedCaseInsensitiveContains("argon")
+    }
+
+    private static func rateWindows(from buckets: [RawGeminiQuotaBucket], modelTag: String?) -> [RateWindow] {
+        buckets.compactMap { bucket -> RateWindow? in
             guard let remaining = bucket.remainingFraction,
                   remaining.isFinite else { return nil }
             let period = period(for: bucket.window)
             // Match the Claude/Codex card style: terse period label ("5-hour" /
             // "Weekly") and let the UI render "Resets in X" from resetsAt rather
-            // than the server's verbose `description` sentence.
+            // than the server's verbose `description` sentence. Argon is its own
+            // pool, so the label names it the way "Weekly · Fable" names Claude's.
+            let label = modelTag.map { "\(period.shortLabel) · \($0)" } ?? period.shortLabel
             return RateWindow(
-                label: period.shortLabel,
+                label: label,
                 period: period,
                 windowMinutes: windowMinutes(for: period),
                 usedPercent: clampPercent((1 - remaining) * 100),

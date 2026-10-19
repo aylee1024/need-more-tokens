@@ -65,6 +65,56 @@ private enum GeminiClientFixture {
     }
     """
 
+    /// daily-cloudcode-pa with a current user agent. The Gemini Models group here
+    /// is a placeholder (different fractions and reset than the primary fixture)
+    /// and must not replace the shared windows. Only the Argon group is used.
+    static let argonQuota = """
+    {
+      "groups": [
+        {
+          "displayName": "Gemini Models",
+          "buckets": [
+            {
+              "bucketId": "gemini-weekly",
+              "window": "weekly",
+              "resetTime": "2026-10-24T23:25:58Z",
+              "remainingFraction": 0.01
+            },
+            {
+              "bucketId": "gemini-5h",
+              "window": "5h",
+              "resetTime": "2026-06-19T09:03:46Z",
+              "remainingFraction": 0.01
+            }
+          ]
+        },
+        {
+          "displayName": "Claude and GPT models",
+          "buckets": [
+            {
+              "bucketId": "3p-weekly",
+              "window": "weekly",
+              "remainingFraction": 0.5
+            }
+          ]
+        },
+        {
+          "displayName": "Gemini 4 Argon",
+          "description": "For paid Pro plans, Argon quota is separate.",
+          "buckets": [
+            {
+              "bucketId": "gemini-argon-wtu-weekly",
+              "displayName": "Gemini 4 Argon Weekly Limit",
+              "window": "weekly",
+              "resetTime": "2026-10-25T02:00:39Z",
+              "remainingFraction": 0.25
+            }
+          ]
+        }
+      ]
+    }
+    """
+
     static let fallbackQuota = """
     {
       "groups": [
@@ -168,7 +218,7 @@ struct GeminiUsageClientTests {
         #expect(partial.cost.isAvailable == false)
 
         let requests = await http.recordedRequests()
-        #expect(requests.count == 2)
+        #expect(requests.count == 3)
         let load = requests[0]
         #expect(load.url?.absoluteString == "https://daily-cloudcode-pa.googleapis.com/v1internal:loadCodeAssist")
         #expect(load.method == "POST")
@@ -186,6 +236,149 @@ struct GeminiUsageClientTests {
         let quotaBody = try jsonObject(from: quota.body)
         #expect(quotaBody["project"] as? String == "parabolic-zepplin-pw532")
         #expect(Set(quotaBody.keys) == Set(["project"]))
+
+        // No Argon group on the primary host, so a second summary is asked of the
+        // daily host. This fixture has no third response; the miss must not drop
+        // the shared windows above.
+        let argon = requests[2]
+        #expect(argon.url?.absoluteString == "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary")
+        #expect(argon.headers["User-Agent"] == "antigravity/cli/1.4.2 darwin/arm64")
+        #expect(argon.headers["Authorization"] == "Bearer gemini-token")
+    }
+
+    @Test func appendsArgonWeeklyAndIgnoresTheDailyHostsPlaceholderGemini() async throws {
+        let (store, dir) = try GeminiClientFixture.store()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let http = StubHTTPClient(responses: [
+            .json(GeminiClientFixture.loadProject),
+            .json(GeminiClientFixture.quota),
+            .json(GeminiClientFixture.argonQuota),
+        ])
+
+        let partial = await GeminiUsageClient(credentialStore: store, tokenStore: makeTempTokenStore(), httpClient: http)
+            .fetch(now: GeminiClientFixture.now)
+
+        let usage = try #require(partial.usage)
+        #expect(partial.usageError == nil)
+        #expect(usage.windows.map(\.label) == ["5-hour", "Weekly", "Weekly · Argon"])
+        #expect(usage.windows.map(\.period) == [.fiveHour, .weekly, .weekly])
+        #expect(abs(usage.windows[0].usedPercent - 3.446245) < 0.00001)
+        #expect(abs(usage.windows[1].usedPercent - 1.50289) < 0.00001)
+        #expect(usage.windows[2].usedPercent == 75)
+        #expect(usage.windows[2].resetsAt == GeminiClientFixture.date("2026-10-25T02:00:39Z"))
+        #expect(usage.windows.allSatisfy { !$0.label.contains("3p") })
+
+        let argon = try #require(await http.recordedRequests().last)
+        let body = try jsonObject(from: argon.body)
+        #expect(body["project"] as? String == "parabolic-zepplin-pw532")
+        #expect(Set(body.keys) == Set(["project"]))
+    }
+
+    @Test func argonRequestFailureLeavesSharedWindowsAndKeepsTheCachedToken() async throws {
+        let now = GeminiClientFixture.now
+        let tokenStore = makeTempTokenStore()
+        tokenStore.save(GeminiCacheSeed(accessToken: "cached-access", refreshToken: "1//r",
+                                        expiresAt: now.addingTimeInterval(3_600)), for: .gemini)
+        let http = StubHTTPClient(responses: [
+            .json(GeminiClientFixture.loadProject),
+            .json(GeminiClientFixture.quota),
+            .json(#"{}"#, status: 401),
+        ])
+        let store = CredentialStore(geminiKeychainReader: FailIfReadGeminiKeychain())
+
+        let partial = await GeminiUsageClient(credentialStore: store, tokenStore: tokenStore, httpClient: http)
+            .fetch(now: now)
+
+        let usage = try #require(partial.usage)
+        #expect(partial.usageError == nil)
+        #expect(usage.windows.map(\.label) == ["5-hour", "Weekly"])
+        #expect(tokenStore.load(GeminiCacheSeed.self, for: .gemini)?.accessToken == "cached-access")
+    }
+
+    @Test func primaryArgonGroupSkipsTheDailyQuotaRequest() async throws {
+        let (store, dir) = try GeminiClientFixture.store()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let quota = """
+        {
+          "groups": [
+            {
+              "displayName": "Gemini Models",
+              "buckets": [
+                {
+                  "bucketId": "gemini-5h",
+                  "window": "5h",
+                  "remainingFraction": 0.5
+                }
+              ]
+            },
+            {
+              "displayName": "Gemini 4 Argon",
+              "buckets": [
+                {
+                  "bucketId": "gemini-argon-wtu-weekly",
+                  "window": "weekly",
+                  "remainingFraction": 0.4,
+                  "resetTime": "2026-10-25T02:00:39Z"
+                }
+              ]
+            }
+          ]
+        }
+        """
+        let http = StubHTTPClient(responses: [
+            .json(GeminiClientFixture.loadProject),
+            .json(quota),
+            .json(GeminiClientFixture.argonQuota),
+        ])
+
+        let partial = await GeminiUsageClient(credentialStore: store, tokenStore: makeTempTokenStore(), httpClient: http)
+            .fetch(now: GeminiClientFixture.now)
+
+        let usage = try #require(partial.usage)
+        #expect(usage.windows.map(\.label) == ["5-hour", "Weekly · Argon"])
+        #expect(usage.windows[0].usedPercent == 50)
+        #expect(usage.windows[1].usedPercent == 60)
+        #expect(await http.recordedRequests().count == 2)
+    }
+
+    @Test func renamedGroupDoesNotTreatAnArgonBucketAsTheSharedWeekly() async throws {
+        let (store, dir) = try GeminiClientFixture.store()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let quota = """
+        {
+          "groups": [
+            {
+              "displayName": "Renamed Gemini Models",
+              "buckets": [
+                {
+                  "bucketId": "gemini-5h",
+                  "window": "5h",
+                  "remainingFraction": 0.5
+                },
+                {
+                  "bucketId": "gemini-argon-wtu-weekly",
+                  "window": "weekly",
+                  "remainingFraction": 0.2
+                }
+              ]
+            }
+          ]
+        }
+        """
+        let http = StubHTTPClient(responses: [
+            .json(GeminiClientFixture.loadProject),
+            .json(quota),
+            .json(#"{"groups":[]}"#),
+        ])
+
+        let partial = await GeminiUsageClient(credentialStore: store, tokenStore: makeTempTokenStore(), httpClient: http)
+            .fetch(now: GeminiClientFixture.now)
+
+        let usage = try #require(partial.usage)
+        #expect(usage.windows.map(\.label) == ["5-hour", "Weekly · Argon"])
+        #expect(usage.windows[0].usedPercent == 50)
+        #expect(usage.windows[1].usedPercent == 80)
+        #expect(await http.recordedRequests().count == 2)
     }
 
     @Test func missingProjectBecomesUsageErrorWithoutQuotaRequest() async throws {
@@ -268,7 +461,7 @@ struct GeminiUsageClientTests {
         #expect(partial.usageError == nil)
         #expect(partial.usage != nil)
         let requests = await http.recordedRequests()
-        #expect(requests.count == 3)
+        #expect(requests.count == 4)
         // First call is the refresh; subsequent calls must carry the REFRESHED token.
         #expect(requests[0].url?.absoluteString == "https://oauth2.googleapis.com/token")
         #expect(requests[0].method == "POST")
@@ -340,7 +533,7 @@ struct GeminiUsageClientTests {
         #expect(partial.usageError == nil)
         #expect(partial.usage != nil)
         let requests = await http.recordedRequests()
-        #expect(requests.count == 4)  // 503 refresh, 200 refresh, loadProject, quota
+        #expect(requests.count == 5)  // 503 refresh, 200 refresh, loadProject, quota, argon
         #expect(requests[0].url?.absoluteString == "https://oauth2.googleapis.com/token")
         #expect(requests[1].url?.absoluteString == "https://oauth2.googleapis.com/token")
         #expect(requests[2].headers["Authorization"] == "Bearer refreshed-token")
@@ -449,7 +642,7 @@ struct GeminiUsageClientTests {
         #expect(partial.usageError == nil)
         #expect(partial.usage != nil)
         let reqs = await http.recordedRequests()
-        #expect(reqs.count == 2)  // loadProject + quota only — no refresh, no Keychain
+        #expect(reqs.count == 3)  // loadProject + quota + argon; no refresh, no Keychain
         #expect(reqs.first?.url?.absoluteString.contains("loadCodeAssist") == true)
     }
 
@@ -471,7 +664,7 @@ struct GeminiUsageClientTests {
         #expect(partial.usageError == nil)
         #expect(partial.usage != nil)
         let reqs = await http.recordedRequests()
-        #expect(reqs.count == 3)  // refresh + loadProject + quota; no Keychain read
+        #expect(reqs.count == 4)  // refresh + loadProject + quota + argon; no Keychain read
         #expect(reqs[0].url?.absoluteString == "https://oauth2.googleapis.com/token")
         #expect(reqs[1].headers["Authorization"] == "Bearer refreshed-token")
         // The refreshed token is cached for next time (so the next fetch is a pure cache hit).
@@ -497,7 +690,7 @@ struct GeminiUsageClientTests {
         #expect(partial.usageError == nil)
         #expect(partial.usage != nil)
         let reqs = await http.recordedRequests()
-        #expect(reqs.count == 3)  // dead-RT refresh (400) → Keychain bootstrap → loadProject + quota
+        #expect(reqs.count == 4)  // dead-RT refresh (400) → Keychain bootstrap → loadProject + quota + argon
         #expect(reqs[0].url?.absoluteString == "https://oauth2.googleapis.com/token")
         #expect(reqs[1].headers["Authorization"] == "Bearer gemini-token")  // the Keychain's token
     }
